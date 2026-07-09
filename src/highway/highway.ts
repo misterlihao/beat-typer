@@ -29,7 +29,7 @@ function buildLayout(): Record<string, { col: number; row: number }> {
 // ── 幾何常數 ──
 const LANE_SPACING = 1.1;
 const ROW_SPACING = 1.0;
-const FAR_Z = -55; // 音符生成的遠端
+const FAR_Z = -40; // 音符生成的遠端(在霧內,一出生即清楚可見;見 grilling)
 const PLANE_Z = 0; // 判定平面
 const NOTE_SIZE = 0.72;
 const COLS = 10;
@@ -42,6 +42,7 @@ const rowY = (row: number) => (row - 1) * ROW_SPACING;
 
 const FLIGHT_DEFAULT = 1.75;
 const OFFSET_DEFAULT = 0;
+const VOLUME_DEFAULT = 0.3; // 預設 tick 峰值 ~0.3(≈舊固定 0.28);對齊滑桿 0.05 步進;最大 100% = 峰值 1.0(舊上限兩倍)
 
 // 判定回饋字樣與顏色。
 const FLASH_LABEL = { perfect: 'PERFECT', good: 'GOOD', miss: 'MISS' } as const;
@@ -94,7 +95,7 @@ export function startHighway(
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x0b0d12, 25, 58);
+  scene.fog = new THREE.Fog(0x0b0d12, 25, 70); // 盡頭拉到 FAR_Z 之外,生成點清楚可見
 
   const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 200);
   camera.position.set(0, 3.4, 8);
@@ -274,6 +275,15 @@ export function startHighway(
     offsetVal.textContent = `${judgeConfig.offsetSec >= 0 ? '+' : ''}${judgeConfig.offsetSec.toFixed(3)}s`;
   });
 
+  // 按鍵音量:縮放 tick 峰值(0=靜音)。共用同一個 player,切視圖也保留設定。
+  const volumeInput = container.querySelector<HTMLInputElement>('.bt-volume')!;
+  const volumeVal = container.querySelector<HTMLSpanElement>('.bt-volume-val')!;
+  player.tickVolume = Number(volumeInput.value);
+  volumeInput.addEventListener('input', () => {
+    player.tickVolume = Number(volumeInput.value);
+    volumeVal.textContent = `${Math.round(player.tickVolume * 100)}%`;
+  });
+
   return () => {
     cancelAnimationFrame(raf);
     window.removeEventListener('resize', resize);
@@ -324,11 +334,23 @@ function makeGlyphSprite(glyph: string, color = '#ffffff', scale = 0.85): THREE.
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d')!;
-  ctx.font = 'bold 88px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
   ctx.fillStyle = color;
-  ctx.fillText(glyph, size / 2, size / 2 + 4);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+
+  // 自動把每個字形依實際墨跡放大置中,填滿畫布的 ~66%——小標點(, . / ;)不再又小又難分。
+  const target = size * 0.66;
+  const base = 100;
+  ctx.font = `bold ${base}px system-ui, sans-serif`;
+  const m0 = ctx.measureText(glyph);
+  const w0 = m0.actualBoundingBoxLeft + m0.actualBoundingBoxRight || m0.width || base * 0.6;
+  const h0 = m0.actualBoundingBoxAscent + m0.actualBoundingBoxDescent || base * 0.7;
+  const fontSize = Math.min(base * Math.min(target / w0, target / h0), 132);
+  ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+  const m = ctx.measureText(glyph);
+  const ox = size / 2 - (m.actualBoundingBoxRight - m.actualBoundingBoxLeft) / 2;
+  const oy = size / 2 - (m.actualBoundingBoxDescent - m.actualBoundingBoxAscent) / 2;
+  ctx.fillText(glyph, ox, oy);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.anisotropy = 4;
@@ -357,6 +379,10 @@ function buildControls(): HTMLElement {
     <label style="display:flex;gap:6px;align-items:center;">offset
       <input type="range" class="bt-offset" min="-0.3" max="0.3" step="0.005" value="${OFFSET_DEFAULT}" />
       <span class="bt-offset-val" style="width:52px;">+0.000s</span>
+    </label>
+    <label style="display:flex;gap:6px;align-items:center;">按鍵音量
+      <input type="range" class="bt-volume" min="0" max="1" step="0.05" value="${VOLUME_DEFAULT}" />
+      <span class="bt-volume-val" style="width:40px;">${Math.round(VOLUME_DEFAULT * 100)}%</span>
     </label>`;
   return bar;
 }
@@ -366,10 +392,11 @@ function buildFeedback(): HTMLElement {
   const wrap = document.createElement('div');
   wrap.style.cssText =
     'position:absolute;inset:0;pointer-events:none;font-family:system-ui,sans-serif;z-index:1;';
+  // combo:左下角計數器(離控制列與來襲走廊都遠、不搶戲又看得到);閃字:上方中央大字(不擋來襲音符)。
   wrap.innerHTML = `
-    <div class="bt-combo" style="position:absolute;top:16%;left:0;right:0;text-align:center;
-      font-size:34px;font-weight:800;color:#eef1f7;text-shadow:0 2px 8px #000;"></div>
-    <div class="bt-flash" style="position:absolute;top:40%;left:0;right:0;text-align:center;
+    <div class="bt-combo" style="position:absolute;left:16px;bottom:14px;
+      font-size:23px;font-weight:800;color:#eef1f7;opacity:0.9;text-shadow:0 2px 6px #000;"></div>
+    <div class="bt-flash" style="position:absolute;top:10%;left:0;right:0;text-align:center;
       font-size:44px;font-weight:900;opacity:0;text-shadow:0 2px 10px #000;"></div>`;
   return wrap;
 }

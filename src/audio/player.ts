@@ -15,6 +15,14 @@ export class AudioPlayer {
   /** 播放自然結束時的回呼(非手動 stop)。 */
   onEnded: (() => void) | null = null;
 
+  /**
+   * 按鍵 tick 音量,0..1。tick 在「最大安全峰值」處定案,此值只往下縮、不會推過天花板,
+   * 故 tick 自身永不削波(歌+tick 疊加削波不在此處理,是刻意的取捨)。0 = 靜音。
+   */
+  tickVolume = 0.55;
+  /** tick 的最大峰值(tickVolume=1 時的振幅);slider 在 0..此值間縮放。歌很大聲時可推到滿。 */
+  private static readonly MAX_TICK_GAIN = 1.0;
+
   private ensureCtx(): AudioContext {
     this.ctx ??= new AudioContext();
     return this.ctx;
@@ -88,6 +96,8 @@ export class AudioPlayer {
    */
   playTick(pitch: 'high' | 'low' = 'high'): void {
     if (!this.ctx || this.ctx.state !== 'running') return; // 僅在音訊已啟動時發聲
+    const peak = AudioPlayer.MAX_TICK_GAIN * Math.max(0, Math.min(1, this.tickVolume));
+    if (peak < 0.001) return; // 靜音:不發聲(exponentialRamp 也不能收斂到 0)
     const ctx = this.ctx;
     const t = ctx.currentTime;
     const [f0, f1] = pitch === 'high' ? [2000, 1200] : [1150, 700];
@@ -97,7 +107,7 @@ export class AudioPlayer {
     osc.frequency.setValueAtTime(f0, t);
     osc.frequency.exponentialRampToValueAtTime(f1, t + 0.03);
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.28, t + 0.002); // 快速起音 = 清脆
+    gain.gain.exponentialRampToValueAtTime(peak, t + 0.002); // 快速起音 = 清脆
     gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
     osc.connect(gain).connect(ctx.destination);
     osc.start(t);
