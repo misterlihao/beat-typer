@@ -1,6 +1,5 @@
 # PRD — Beat Typer（打字練習音樂遊戲）
 
-> 狀態：`ready-for-agent`（尚無 issue tracker，暫存為 repo 檔案；日後授權 tracker 後再發布並貼標籤）
 > 來源：由 grilling 設計訪談收斂而成的共識。
 
 ## Problem Statement
@@ -141,10 +140,9 @@
 - 排行榜、帳號、雲端存檔、社群分享。
 - 譜面編輯或字母映射的使用者自訂。
 - 手把/其他輸入裝置；本作僅鍵盤。
-- 發布到 issue tracker（待授權後補）。
 
 ## Further Notes
 
 - 本 PRD 由 grilling 設計訪談收斂，所有主要分支已與使用者確認。
-- 環境限制：本專案目前無 git、無設定的 issue tracker，且此為非互動 session 無法完成 tracker 的 OAuth 授權。故 PRD 暫存於 `docs/PRD.md`；待使用者於互動 session 授權 Linear/Jira 等後，再發布並貼上 `ready-for-agent` 標籤。
+- 進度與 issue 追蹤一律用 task-tracker 技能;切片規格存於 `docs/issues/`。
 - 可讀性是 3D 化的最大風險，已以「billboard 字母 + 固定可調飛行時間」對沖；載入層的文字驗證預覽讓映射與音同步能在 3D 完成前先被驗證，降低整體風險。

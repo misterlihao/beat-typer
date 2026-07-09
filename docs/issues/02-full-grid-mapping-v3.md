@@ -1,6 +1,6 @@
 # 02 — 完整全格映射 + v3 支援
 
-> 標籤:`ready-for-agent`(待 tracker 授權後上傳) · 來源:docs/PRD.md
+> 來源:docs/PRD.md
 
 ## What to build
 

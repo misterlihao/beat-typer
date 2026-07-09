@@ -1,6 +1,6 @@
 # 07 — 判定 + 計分 + combo(judge 接縫)
 
-> 標籤:`ready-for-agent`(待 tracker 授權後上傳) · 來源:docs/PRD.md
+> 來源:docs/PRD.md
 
 ## What to build
 
