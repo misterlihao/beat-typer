@@ -35,6 +35,9 @@ async function bootstrap(root: HTMLElement, source: ChartSource): Promise<void> 
   const audioBytes = await song.readFile(info.audioFilename);
   await player.load(audioBytes);
 
+  // DEV-only 診斷 hook:方便在瀏覽器對齊音訊時鐘做手動/自動驗證。正式建置不掛。
+  if (import.meta.env.DEV) Reflect.set(window, '__btPlayer', player);
+
   // 5) 主視圖:3D 高速公路;可切換到表格預覽(開發驗證工具)。
   mountViews(root, chart, player, {
     title: `${song.title} — ${diff.characteristic} ${diff.difficulty}`,

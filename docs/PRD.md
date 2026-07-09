@@ -46,7 +46,7 @@
 25. As a 玩家, I want 在音符抵達判定平面的時間窗內敲對字母得到 Perfect 或 Good（依接近程度）, so that 我的準度被獎勵。
 26. As a 玩家, I want 太早、太晚或錯過都算 Miss, so that 判定明確。
 27. As a 玩家, I want 當目標音符在判定窗內時我敲錯鍵就算該音符 Miss 並斷 combo, so that 打錯字有回饋、我會想打準。
-28. As a 玩家, I want 附近沒有音符時的多餘按鍵只計入準確率統計、不斷 combo, so that 我不會因為手滑而被過度懲罰。
+28. As a 玩家, I want 附近沒有音符時的多餘按鍵完全不罰(不斷 combo、不計入準確率,僅計數顯示), so that 我不會因為手滑而被懲罰。(grilling 收斂:比原「只計入準確率」更寬容。)
 29. As a 玩家, I want 長按音符要在頭部按下、持續按住、尾部附近放開才算命中, so that 弧線玩法有正確判定。
 30. As a 玩家, I want 看到即時的 combo 數, so that 我感受到連續打對的爽感。
 31. As a 玩家, I want 這首歌不會因為打太爛而 game over, so that 我能一路練到底。
@@ -92,7 +92,7 @@
 **判定契約**
 - 判定分級由「按下時間與音符 `tSec` 的差」落在哪個時間窗決定：窗內近→Perfect、窗內遠→Good、出窗→Miss。窗寬與 offset 由 `config` 提供。
 - 目標音符在判定窗內時，錯鍵按下 → 該音符判 Miss + 斷 combo。
-- 無音符在窗內時的按鍵 → 記為「多餘按鍵」，計入準確率統計但不斷 combo。
+- 無音符在窗內時的按鍵 → 記為「多餘按鍵」：不斷 combo、不計入準確率(僅計數顯示)。
 - `hold`：頭部在窗內按下起算，需持續按住至 `holdEndSec` 附近放開；提早放或未按住→依 hold 判定規則降級/Miss。
 
 **時鐘與音訊**
@@ -124,7 +124,7 @@
 - `judge`（次要）：以「編譯後的 chart + 一串帶時戳的按鍵事件」為輸入，斷言 judgments 與 summary。涵蓋案例：
   - 窗內近/遠 → Perfect/Good；出窗 → Miss。
   - 窗內錯鍵 → 該音符 Miss + combo 歸零。
-  - 窗外多餘按鍵 → 計入準確率但不斷 combo。
+  - 窗外多餘按鍵 → 不斷 combo、不計入準確率(僅計數)。
   - 長按：正確按住命中；提早放開/未按住 → 降級或 Miss。
   - summary 的準確率、最大 combo、各判定計數、評級計算正確。
 

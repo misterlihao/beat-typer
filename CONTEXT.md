@@ -81,4 +81,13 @@ _Avoid_: event, keystroke
 音符抵達、玩家該敲鍵的那一刻的平面;在近端呈現 **10 欄 × 3 列的靜態目標格線**(一張鍵盤輪廓),讓玩家預見落點與手指預備位。
 
 **judge**:
-把 TypingChart + 帶時戳按鍵事件 + config 轉成判定與 summary(準確率/combo/評級)的純函式。次測試接縫。
+把 TypingChart + 帶時戳按鍵事件 + config 轉成判定與 summary(準確率/combo/評級)的純函式。次測試接縫。即時路徑與批次共用同一組增量原語(`Judger`:`press` / `expiry`),邏輯單一真相來源。
+
+**判定 (Judgment)**:
+單顆音符的結果:Perfect(窗內近)/ Good(窗內遠)/ Miss(出窗、未敲到、或窗內敲錯鍵)。
+
+**多餘按鍵 (Extra press)**:
+附近無音符在窗內時的按鍵。**完全不罰**:不斷 combo、不計入準確率,僅計數顯示。
+
+**評級 (Grade)**:
+由準確率換算的總評(S/A/B/C/D)。準確率 = Σ權重(Perfect 1 / Good 0.5 / Miss 0)/ 音符數。
