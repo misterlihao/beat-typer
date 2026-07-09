@@ -82,18 +82,20 @@ export class AudioPlayer {
   }
 
   /**
-   * 合成一個清脆的短「tick」按鍵音,供玩家對準時機。複用主 AudioContext(播放時已 resume)。
-   * 三角波 2k→1.2kHz 快速下滑 + ~45ms 指數衰減,不載外部音檔。
+   * 合成一個短「tick」按鍵音,供玩家對準時機。複用主 AudioContext(播放時已 resume)。
+   * 三角波快速下滑 + ~45ms 指數衰減,不載外部音檔。
+   * @param pitch 'high' = 清脆高音(Perfect);'low' = 稍低沉(其他判定),以利區分。
    */
-  playTick(): void {
+  playTick(pitch: 'high' | 'low' = 'high'): void {
     if (!this.ctx || this.ctx.state !== 'running') return; // 僅在音訊已啟動時發聲
     const ctx = this.ctx;
     const t = ctx.currentTime;
+    const [f0, f1] = pitch === 'high' ? [2000, 1200] : [1150, 700];
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'triangle';
-    osc.frequency.setValueAtTime(2000, t);
-    osc.frequency.exponentialRampToValueAtTime(1200, t + 0.03);
+    osc.frequency.setValueAtTime(f0, t);
+    osc.frequency.exponentialRampToValueAtTime(f1, t + 0.03);
     gain.gain.setValueAtTime(0.0001, t);
     gain.gain.exponentialRampToValueAtTime(0.28, t + 0.002); // 快速起音 = 清脆
     gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);

@@ -238,8 +238,9 @@ export function startHighway(
   const onKeyDown = (e: KeyboardEvent) => {
     if (!judger || !player.isPlaying || e.repeat) return;
     if (!(e.code in KEY_LAYOUT)) return;
-    player.playTick(); // 清脆按鍵音,幫玩家對準時機
     const outcome: PressOutcome = judger.press({ t: player.positionSec, key: e.code });
+    // 按鍵音:Perfect 清脆高音、其他稍低沉以利區分。press 為同步,延遲無感、仍即時。
+    player.playTick(outcome.kind === 'perfect' ? 'high' : 'low');
     // 按鍵反饋:按下的格必亮;顏色依判定(打擊反饋),多餘按鍵用中性色。
     const kind = outcome.kind === 'extra' ? 'key' : outcome.kind;
     activateCell(e.code, CELL_COLOR[kind], CELL_PEAK[kind]);
