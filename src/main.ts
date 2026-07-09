@@ -3,9 +3,11 @@
 import { AudioPlayer } from './audio/player.ts';
 import { compileChart } from './compile/compileChart.ts';
 import { parseInfo } from './compile/parseInfo.ts';
+import { startHighway } from './highway/highway.ts';
 import { BuiltinChartSource } from './loader/builtin.ts';
 import type { ChartSource } from './loader/types.ts';
 import { renderPreview } from './preview/renderTable.ts';
+import type { TypingChart } from './compile/types.ts';
 
 const decoder = new TextDecoder('utf-8');
 
@@ -33,17 +35,56 @@ async function bootstrap(root: HTMLElement, source: ChartSource): Promise<void> 
   const audioBytes = await song.readFile(info.audioFilename);
   await player.load(audioBytes);
 
-  // 5) 渲染表格預覽 + playhead。
-  renderPreview(
-    root,
-    chart,
-    {
-      title: `${song.title} — ${diff.characteristic} ${diff.difficulty}`,
-      bpm: info.bpm,
-      songTimeOffset: info.songTimeOffset,
-    },
-    player,
-  );
+  // 5) 主視圖:3D 高速公路;可切換到表格預覽(開發驗證工具)。
+  mountViews(root, chart, player, {
+    title: `${song.title} — ${diff.characteristic} ${diff.difficulty}`,
+    bpm: info.bpm,
+    songTimeOffset: info.songTimeOffset,
+  });
+}
+
+interface ViewDeps {
+  readonly title: string;
+  readonly bpm: number;
+  readonly songTimeOffset: number;
+}
+
+/** 掛載高速公路 / 表格預覽,附一個切換鈕。共用同一個 player。 */
+function mountViews(root: HTMLElement, chart: TypingChart, player: AudioPlayer, deps: ViewDeps): void {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:relative;';
+  const toolbar = document.createElement('div');
+  toolbar.style.cssText =
+    'position:fixed;right:12px;bottom:12px;z-index:10;font-family:system-ui,sans-serif;';
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.style.cssText =
+    'font-size:13px;padding:7px 14px;cursor:pointer;border:1px solid #4a5163;border-radius:6px;background:#1b1f2a;color:#cdd3df;';
+  const viewRoot = document.createElement('div');
+  toolbar.appendChild(toggle);
+  wrap.append(viewRoot, toolbar);
+  root.replaceChildren(wrap);
+
+  let view: 'highway' | 'preview' = 'highway';
+  let cleanup: (() => void) | null = null;
+
+  const mount = () => {
+    cleanup?.();
+    if (player.isPlaying) player.pause();
+    if (view === 'highway') {
+      toggle.textContent = '切換到表格預覽';
+      cleanup = startHighway(viewRoot, chart, { title: deps.title }, player);
+    } else {
+      toggle.textContent = '切換到 3D 高速公路';
+      cleanup = renderPreview(viewRoot, chart, deps, player);
+    }
+  };
+
+  toggle.addEventListener('click', () => {
+    view = view === 'highway' ? 'preview' : 'highway';
+    mount();
+  });
+  mount();
 }
 
 const app = document.getElementById('app');
