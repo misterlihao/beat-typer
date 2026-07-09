@@ -81,6 +81,27 @@ export class AudioPlayer {
     this.offsetSec = 0;
   }
 
+  /**
+   * 合成一個清脆的短「tick」按鍵音,供玩家對準時機。複用主 AudioContext(播放時已 resume)。
+   * 三角波 2k→1.2kHz 快速下滑 + ~45ms 指數衰減,不載外部音檔。
+   */
+  playTick(): void {
+    if (!this.ctx || this.ctx.state !== 'running') return; // 僅在音訊已啟動時發聲
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(2000, t);
+    osc.frequency.exponentialRampToValueAtTime(1200, t + 0.03);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.28, t + 0.002); // 快速起音 = 清脆
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.06);
+  }
+
   private stopSource(): void {
     if (this.source) {
       this.source.onended = null;

@@ -48,6 +48,11 @@ const FLASH_LABEL = { perfect: 'PERFECT', good: 'GOOD', miss: 'MISS' } as const;
 const FLASH_COLOR = { perfect: '#ffd23f', good: '#5ad17a', miss: '#ff5e5e' } as const;
 const FLASH_MS = 450;
 
+// 格子發光:按鍵反饋(任何按鍵亮其格)+ 打擊反饋(命中依判定上色)。
+const CELL_MS = 260;
+const CELL_COLOR = { perfect: 0xffd23f, good: 0x5ad17a, miss: 0xff5e5e, key: 0x9fb2d0 } as const;
+const CELL_PEAK = { perfect: 0.95, good: 0.85, miss: 0.7, key: 0.32 } as const;
+
 interface NoteVisual {
   readonly index: number; // chart 索引(對應 judge 的 noteIndex)
   readonly note: TypingChart[number];
@@ -100,6 +105,26 @@ export function startHighway(
   dir.position.set(0, 8, 6);
   scene.add(dir);
   scene.add(buildTargetGrid());
+
+  // 每個鍵盤格一片可發光的面(按鍵/打擊反饋)。放在標籤後方,發光時字仍讀得到。
+  const cellGeo = new THREE.PlaneGeometry(LANE_SPACING * 0.9, ROW_SPACING * 0.9);
+  const cells = new Map<string, THREE.Mesh>();
+  for (const [code, { col, row }] of Object.entries(KEY_LAYOUT)) {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false });
+    const mesh = new THREE.Mesh(cellGeo, mat);
+    mesh.position.set(laneX(col), rowY(row), PLANE_Z - 0.02);
+    mesh.userData.flashStart = -Infinity;
+    mesh.userData.peak = 0;
+    scene.add(mesh);
+    cells.set(code, mesh);
+  }
+  const activateCell = (code: string, color: number, peak: number) => {
+    const mesh = cells.get(code);
+    if (!mesh) return;
+    (mesh.material as THREE.MeshBasicMaterial).color.setHex(color);
+    mesh.userData.flashStart = performance.now();
+    mesh.userData.peak = peak;
+  };
 
   // 為每顆音符建 box + glyph sprite,一次建齊,以可見性切換(範例譜面音符少)。
   const visuals: NoteVisual[] = [];
@@ -184,11 +209,22 @@ export function startHighway(
   const loop = (ts: number) => {
     const now = player.positionSec;
     if (judger) {
-      if (judger.expiry(now).length > 0) flash('miss'); // 過期未敲 → Miss
+      const missed = judger.expiry(now); // 過期未敲 → Miss(打擊反饋:該音符的格閃紅)
+      if (missed.length > 0) {
+        flash('miss');
+        for (const i of missed) activateCell(chart[i]!.key, CELL_COLOR.miss, CELL_PEAK.miss);
+      }
       showCombo();
     }
     const age = ts - flashStart; // 回饋閃字淡出
     flashEl.style.opacity = age < FLASH_MS ? String(1 - age / FLASH_MS) : '0';
+
+    // 格子發光淡出
+    for (const mesh of cells.values()) {
+      const cage = ts - (mesh.userData.flashStart as number);
+      (mesh.material as THREE.MeshBasicMaterial).opacity =
+        cage < CELL_MS ? (mesh.userData.peak as number) * (1 - cage / CELL_MS) : 0;
+    }
 
     positionNotes(now);
     renderer.render(scene, camera);
@@ -202,7 +238,11 @@ export function startHighway(
   const onKeyDown = (e: KeyboardEvent) => {
     if (!judger || !player.isPlaying || e.repeat) return;
     if (!(e.code in KEY_LAYOUT)) return;
+    player.playTick(); // 清脆按鍵音,幫玩家對準時機
     const outcome: PressOutcome = judger.press({ t: player.positionSec, key: e.code });
+    // 按鍵反饋:按下的格必亮;顏色依判定(打擊反饋),多餘按鍵用中性色。
+    const kind = outcome.kind === 'extra' ? 'key' : outcome.kind;
+    activateCell(e.code, CELL_COLOR[kind], CELL_PEAK[kind]);
     if (outcome.kind !== 'extra') flash(outcome.kind);
     showCombo();
   };
@@ -238,6 +278,8 @@ export function startHighway(
     window.removeEventListener('resize', resize);
     window.removeEventListener('keydown', onKeyDown);
     boxGeo.dispose();
+    cellGeo.dispose();
+    for (const mesh of cells.values()) (mesh.material as THREE.Material).dispose();
     for (const v of visuals) {
       (v.box.material as THREE.Material).dispose();
       v.sprite.material.map?.dispose();
