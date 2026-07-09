@@ -47,6 +47,8 @@ export interface SongInfo {
   readonly bpm: number;
   readonly songTimeOffset: number;
   readonly audioFilename: string;
+  /** 給玩家看的歌名(Info.dat 的 _songName);缺漏時 undefined,由呼叫端 fallback。 */
+  readonly songName?: string;
   readonly difficulties: readonly DifficultyRef[];
 }
 

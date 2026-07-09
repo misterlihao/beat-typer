@@ -14,6 +14,7 @@ interface RawInfo {
   _beatsPerMinute?: number;
   _songTimeOffset?: number;
   _songFilename?: string;
+  _songName?: string;
   _difficultyBeatmapSets?: RawDifficultySet[];
 }
 
@@ -52,10 +53,27 @@ export function parseInfo(infoText: string): SongInfo {
     throw new Error('Info.dat 未列出任何難度');
   }
 
+  const songName =
+    typeof raw._songName === 'string' && raw._songName.length > 0 ? raw._songName : undefined;
+
   return {
     bpm,
     songTimeOffset: typeof raw._songTimeOffset === 'number' ? raw._songTimeOffset : 0,
     audioFilename,
+    songName,
     difficulties,
   };
+}
+
+/**
+ * 從難度清單挑一個可玩的預設難度(難度選單留 issue 05)。
+ * 規則:略過無音符的 Lightshow(燈光譜)、優先 Standard 特性,否則取剩下的第一個。
+ * @param difficulties parseInfo 回傳的非空難度清單。
+ */
+export function pickPlayableDifficulty(
+  difficulties: readonly DifficultyRef[],
+): DifficultyRef {
+  const playable = difficulties.filter((d) => d.characteristic !== 'Lightshow');
+  const pool = playable.length > 0 ? playable : difficulties;
+  return pool.find((d) => d.characteristic === 'Standard') ?? pool[0]!;
 }
