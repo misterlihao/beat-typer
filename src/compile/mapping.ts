@@ -58,6 +58,17 @@ export function keyFor(hand: Hand, finger: Finger, bank: Bank): string {
   return KEY_GRID[hand][finger][bank];
 }
 
+// 內側鍵:同一根食指內側的三個列。用於同手疊放收斂後的強調音符(見 docs/adr/0006)。
+const INNER_GRID: Record<Hand, Record<Bank, string>> = {
+  left: { top: 'KeyT', home: 'KeyG', bottom: 'KeyB' },
+  right: { top: 'KeyY', home: 'KeyH', bottom: 'KeyN' },
+};
+
+/** (hand, bank) → 內側鍵碼。內側鍵一律屬食指。 */
+export function innerKeyFor(hand: Hand, bank: Bank): string {
+  return INNER_GRID[hand][bank];
+}
+
 /** 一顆音符的完整映射結果。 */
 export interface MappedKey {
   readonly hand: Hand;

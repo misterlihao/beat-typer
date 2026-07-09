@@ -219,6 +219,100 @@ describe('compileChart — v3 beat→秒換算', () => {
   });
 });
 
+describe('compileChart — 同手疊放收斂(< 1/8 beat → 單一內側鍵)', () => {
+  // BPM 120 → secPerBeat 0.5;1/8 beat = 0.125 beat = 0.0625s。
+  it('同手兩顆相距 < 1/8 beat → 收斂成一顆內側鍵,列取錨點', () => {
+    // 左手 beat0(col0/row1=KeyA)+ beat0.1(col1/row1);錨點列=1(家)→ 左內側家鍵 KeyG。
+    const chart = compileV3([noteV3(0, 0, 1, 0), noteV3(0.1, 1, 1, 0)]);
+    expect(chart).toHaveLength(1);
+    expect(chart[0]).toMatchObject({
+      key: 'KeyG',
+      hand: 'left',
+      finger: 'index',
+      bank: 'home',
+      kind: 'press',
+      tSec: 0,
+    });
+  });
+
+  it('右手疊放 → 右內側鍵(錨點列決定上中下)', () => {
+    // 右手 beat0(col0/row2=上)+ beat0.05(col1/row0);錨點列=2(上)→ 右內側上鍵 KeyY。
+    const chart = compileV3([noteV3(0, 0, 2, 1), noteV3(0.05, 1, 0, 1)]);
+    expect(chart).toHaveLength(1);
+    expect(chart[0]).toMatchObject({ key: 'KeyY', hand: 'right', finger: 'index', bank: 'top' });
+  });
+
+  it('錨點制:beat 0/0.1/0.2 → {0,0.1} 疊放、{0.2} 單顆,不鏈式串接', () => {
+    const chart = compileV3([
+      noteV3(0, 0, 1, 0), // 錨點
+      noteV3(0.1, 1, 1, 0), // 併入(0.1 < 0.125)
+      noteV3(0.2, 2, 0, 0), // 距錨點 0.2 ≥ 0.125 → 自成一群(col2/row0=KeyC)
+    ]);
+    expect(chart).toHaveLength(2);
+    expect(chart[0]).toMatchObject({ key: 'KeyG', tSec: 0 }); // 疊放收斂
+    expect(chart[1]).toMatchObject({ key: 'KeyC', tSec: 0.1 }); // 單顆正常映射
+  });
+
+  it('恰好相距 1/8 beat → 連打(各自保留),非疊放', () => {
+    const chart = compileV3([noteV3(0, 0, 1, 0), noteV3(0.125, 0, 1, 0)]);
+    expect(chart).toHaveLength(2);
+    expect(chart.every((n) => n.key === 'KeyA')).toBe(true);
+  });
+
+  it('跨手同拍 → 兩顆各自保留、共用 tSec,不收斂', () => {
+    const chart = compileV3([noteV3(0, 0, 1, 0), noteV3(0, 1, 1, 1)]);
+    expect(chart).toHaveLength(2);
+    expect(chart.map((n) => n.key).sort()).toEqual(['KeyA', 'KeyK']);
+    expect(chart.every((n) => n.tSec === 0)).toBe(true);
+  });
+
+  it('v2 疊放同樣收斂(行為與格式無關)', () => {
+    const chart = compile([note(0, 0, 1, 0), note(0, 1, 1, 0)]);
+    expect(chart).toHaveLength(1);
+    expect(chart[0]).toMatchObject({ key: 'KeyG', hand: 'left', finger: 'index' });
+  });
+});
+
+describe('compileChart — v3 弧線 → hold', () => {
+  function diffWithSliders(
+    notes: ReturnType<typeof noteV3>[],
+    sliders: Array<{ c: number; b: number; x: number; y: number; tb: number; tx: number; ty: number }>,
+  ): string {
+    return JSON.stringify({ version: '3.2.0', colorNotes: notes, sliders, bombNotes: [], obstacles: [] });
+  }
+  const compileSliders = (
+    notes: ReturnType<typeof noteV3>[],
+    sliders: Parameters<typeof diffWithSliders>[1],
+  ) => compileChart({ infoText: infoDat(), difficultyFiles: { 'd.dat': diffWithSliders(notes, sliders) } }, 'ExpertPlus');
+
+  it('弧線輸出 kind:hold、key 取 head、holdEndSec 取 tail', () => {
+    // head col0/row1/紅 = 左小指家 KeyA;tail beat 2 → holdEndSec 1.0(BPM120)。
+    const chart = compileSliders([], [{ c: 0, b: 0, x: 0, y: 1, tb: 2, tx: 0, ty: 1 }]);
+    expect(chart).toHaveLength(1);
+    expect(chart[0]).toMatchObject({ key: 'KeyA', kind: 'hold', tSec: 0 });
+    expect(chart[0]!.holdEndSec).toBeCloseTo(1.0, 10);
+  });
+
+  it('與 head 精確重疊的 colorNote 被濾除(不 press+hold 並存)', () => {
+    const chart = compileSliders(
+      [noteV3(0, 0, 1, 0), noteV3(1, 1, 1, 1)], // 第一顆與 head 重疊 → 濾除;第二顆保留
+      [{ c: 0, b: 0, x: 0, y: 1, tb: 2, tx: 0, ty: 1 }],
+    );
+    expect(chart).toHaveLength(2);
+    expect(chart[0]).toMatchObject({ key: 'KeyA', kind: 'hold' });
+    expect(chart[1]).toMatchObject({ key: 'KeyK', kind: 'press' }); // col1/row1/藍 = 右中指家
+  });
+
+  it('與 tail 精確重疊的 colorNote 也被濾除', () => {
+    const chart = compileSliders(
+      [noteV3(2, 0, 1, 0)], // 與 tail(beat2,col0,row1,紅)重疊 → 濾除
+      [{ c: 0, b: 0, x: 0, y: 1, tb: 2, tx: 0, ty: 1 }],
+    );
+    expect(chart).toHaveLength(1);
+    expect(chart[0]!.kind).toBe('hold');
+  });
+});
+
 describe('mapping 單元', () => {
   it('mapNote 涵蓋四角落', () => {
     expect(mapNote(0, 0, 2)).toMatchObject({ key: 'KeyQ' }); // 左小指上
