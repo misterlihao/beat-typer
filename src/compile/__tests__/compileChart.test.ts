@@ -32,6 +32,27 @@ function compile(notes: ReturnType<typeof note>[], opts: { bpm?: number; offset?
   );
 }
 
+// ── v3 fixture 建構器(欄位順序刻意同 v2 的 note():time, col, layer, color)──
+function noteV3(b: number, x: number, y: number, c: number) {
+  return { b, x, y, c, d: 1, a: 0 };
+}
+function diffDatV3(notes: ReturnType<typeof noteV3>[]): string {
+  return JSON.stringify({
+    version: '3.2.0',
+    colorNotes: notes,
+    bombNotes: [],
+    obstacles: [],
+    sliders: [],
+    burstSliders: [],
+  });
+}
+function compileV3(notes: ReturnType<typeof noteV3>[], opts: { bpm?: number; offset?: number } = {}) {
+  return compileChart(
+    { infoText: infoDat(opts), difficultyFiles: { 'd.dat': diffDatV3(notes) } },
+    'ExpertPlus',
+  );
+}
+
 describe('compileChart — 映射', () => {
   it('紅音符 col2/layer0 → 左手中指下排 KeyC', () => {
     const [n] = compile([note(0, 2, 0, 0)]);
@@ -86,12 +107,20 @@ describe('compileChart — 過濾與排序', () => {
 });
 
 describe('compileChart — 錯誤處理', () => {
-  it('v3 譜面丟出尚未支援', () => {
+  it('v3 colorNotes 不是陣列丟出清楚錯誤', () => {
     const infoText = infoDat();
-    const v3 = JSON.stringify({ version: '3.2.0', colorNotes: [] });
+    const bad = JSON.stringify({ version: '3.2.0', colorNotes: {} });
     expect(() =>
-      compileChart({ infoText, difficultyFiles: { 'd.dat': v3 } }, 'ExpertPlus'),
-    ).toThrow(/v3/);
+      compileChart({ infoText, difficultyFiles: { 'd.dat': bad } }, 'ExpertPlus'),
+    ).toThrow(/colorNotes/);
+  });
+
+  it('無法辨識的譜面版本丟出清楚錯誤', () => {
+    const infoText = infoDat();
+    const bad = JSON.stringify({ version: '4.0.0' });
+    expect(() =>
+      compileChart({ infoText, difficultyFiles: { 'd.dat': bad } }, 'ExpertPlus'),
+    ).toThrow(/不支援的譜面版本/);
   });
 
   it('找不到難度名丟出清楚錯誤', () => {
@@ -104,6 +133,89 @@ describe('compileChart — 錯誤處理', () => {
     expect(() =>
       compileChart({ infoText: infoDat(), difficultyFiles: {} }, 'ExpertPlus'),
     ).toThrow(/缺少難度檔/);
+  });
+});
+
+// PRD 全格映射表(顏色→欄→[下排,家排,上排])。golden 期望值,獨立於實作。
+const EXPECTED_GRID: Record<number, Record<number, readonly [string, string, string]>> = {
+  0: {
+    // 紅=左手
+    0: ['KeyZ', 'KeyA', 'KeyQ'], // 左小指
+    1: ['KeyX', 'KeyS', 'KeyW'], // 左無名
+    2: ['KeyC', 'KeyD', 'KeyE'], // 左中指
+    3: ['KeyV', 'KeyF', 'KeyR'], // 左食指
+  },
+  1: {
+    // 藍=右手(欄鏡射:col0 對右食指、col3 對右小指)
+    0: ['KeyM', 'KeyJ', 'KeyU'], // 右食指
+    1: ['Comma', 'KeyK', 'KeyI'], // 右中指
+    2: ['Period', 'KeyL', 'KeyO'], // 右無名
+    3: ['Slash', 'Semicolon', 'KeyP'], // 右小指
+  },
+};
+
+describe('compileChart — v3 全格映射(每一格一個 fixture)', () => {
+  for (const color of [0, 1]) {
+    for (const column of [0, 1, 2, 3]) {
+      for (const layer of [0, 1, 2]) {
+        const expectedKey = EXPECTED_GRID[color]![column]![layer]!;
+        it(`v3 c${color}/x${column}/y${layer} → ${expectedKey}`, () => {
+          const [n] = compileV3([noteV3(0, column, layer, color)]);
+          expect(n!.key).toBe(expectedKey);
+        });
+      }
+    }
+  }
+});
+
+describe('compileChart — v2↔v3 對等', () => {
+  it('同一批邏輯音符,v2 與 v3 產出完全一致的 TypingChart', () => {
+    // [time/beat, 欄, 列, 顏色] — 跨手、跨欄、跨列、含右手鏡射與同拍
+    const cells: Array<[number, number, number, number]> = [
+      [0, 0, 1, 0],
+      [0.5, 2, 2, 0],
+      [1, 3, 0, 0],
+      [1, 0, 2, 1], // 與上一顆同拍,測穩定排序
+      [2, 1, 1, 1],
+      [3, 3, 2, 1],
+    ];
+    const opts = { bpm: 128, offset: 0.03 };
+    const v2chart = compile(
+      cells.map(([t, x, y, c]) => note(t, x, y, c)),
+      opts,
+    );
+    const v3chart = compileV3(
+      cells.map(([b, x, y, c]) => noteV3(b, x, y, c)),
+      opts,
+    );
+    expect(v3chart).toEqual(v2chart);
+    expect(v3chart).toHaveLength(cells.length);
+  });
+});
+
+describe('compileChart — v3 beat→秒換算', () => {
+  it('v3 BPM 120、offset 0.05:beat 2 → tSec 1.05', () => {
+    const [n] = compileV3([noteV3(2, 0, 1, 0)], { bpm: 120, offset: 0.05 });
+    expect(n!.tSec).toBeCloseTo(1.05, 10);
+  });
+
+  it('v3 BPM 60、offset 0:beat 1 → tSec 1.0', () => {
+    const [n] = compileV3([noteV3(1, 0, 1, 0)], { bpm: 60, offset: 0 });
+    expect(n!.tSec).toBeCloseTo(1.0, 10);
+  });
+
+  it('v3 炸彈/牆/鏈/弧陣列被忽略,只讀 colorNotes', () => {
+    const infoText = infoDat();
+    const diff = JSON.stringify({
+      version: '3.2.0',
+      colorNotes: [noteV3(0, 0, 1, 0)],
+      bombNotes: [{ b: 0, x: 1, y: 1 }],
+      obstacles: [{ b: 0, x: 0, y: 0, d: 1, w: 1, h: 1 }],
+      burstSliders: [{ b: 0, x: 0, y: 0, c: 0 }],
+    });
+    const chart = compileChart({ infoText, difficultyFiles: { 'd.dat': diff } }, 'ExpertPlus');
+    expect(chart).toHaveLength(1);
+    expect(chart[0]!.key).toBe('KeyA');
   });
 });
 
