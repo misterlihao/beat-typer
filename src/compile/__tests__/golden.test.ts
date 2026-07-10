@@ -26,16 +26,18 @@ describe('golden — 內建範例', () => {
     expect(diff).toMatchObject({ characteristic: 'Standard', difficulty: 'ExpertPlus' });
   });
 
-  it('編譯出 8 顆音符,覆蓋全 8 指、紅藍各半', () => {
+  it('編譯出 8 顆音符,紅藍各半;鍵由鍵指派依教學權重選(食指/中指家排+上排先)', () => {
+    // 8 顆等距 0.5s(≫ 可玩性 gap 0.12),純教學權重驅動:每手前 4 顆落最高權重的
+    // 食指/中指、家排優先再上排(見 docs/adr/0008)。與舊的位置映射無關。
     const expected = [
-      { tSec: 0.05, key: 'KeyA', hand: 'left', finger: 'pinky', bank: 'home' },
-      { tSec: 0.55, key: 'KeyW', hand: 'left', finger: 'ring', bank: 'top' },
-      { tSec: 1.05, key: 'KeyC', hand: 'left', finger: 'middle', bank: 'bottom' },
-      { tSec: 1.55, key: 'KeyF', hand: 'left', finger: 'index', bank: 'home' },
-      { tSec: 2.05, key: 'KeyU', hand: 'right', finger: 'index', bank: 'top' },
+      { tSec: 0.05, key: 'KeyF', hand: 'left', finger: 'index', bank: 'home' },
+      { tSec: 0.55, key: 'KeyD', hand: 'left', finger: 'middle', bank: 'home' },
+      { tSec: 1.05, key: 'KeyR', hand: 'left', finger: 'index', bank: 'top' },
+      { tSec: 1.55, key: 'KeyE', hand: 'left', finger: 'middle', bank: 'top' },
+      { tSec: 2.05, key: 'KeyJ', hand: 'right', finger: 'index', bank: 'home' },
       { tSec: 2.55, key: 'KeyK', hand: 'right', finger: 'middle', bank: 'home' },
-      { tSec: 3.05, key: 'Period', hand: 'right', finger: 'ring', bank: 'bottom' },
-      { tSec: 3.55, key: 'Semicolon', hand: 'right', finger: 'pinky', bank: 'home' },
+      { tSec: 3.05, key: 'KeyU', hand: 'right', finger: 'index', bank: 'top' },
+      { tSec: 3.55, key: 'KeyI', hand: 'right', finger: 'middle', bank: 'top' },
     ];
     expect(chart).toHaveLength(expected.length);
     chart.forEach((n, i) => {
@@ -43,5 +45,8 @@ describe('golden — 內建範例', () => {
       expect(n.tSec).toBeCloseTo(e.tSec, 10);
       expect(n).toMatchObject({ key: e.key, hand: e.hand, finger: e.finger, bank: e.bank, kind: 'press' });
     });
+    // 紅藍各半。
+    expect(chart.filter((n) => n.hand === 'left')).toHaveLength(4);
+    expect(chart.filter((n) => n.hand === 'right')).toHaveLength(4);
   });
 });

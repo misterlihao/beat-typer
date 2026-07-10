@@ -3,10 +3,10 @@
 /** 左手或右手,由音符顏色決定(紅=左、藍=右)。 */
 export type Hand = 'left' | 'right';
 
-/** 一隻手的手指,由欄決定(空間順序保留)。 */
+/** 一隻手的手指,是被指派鍵的屬性(由鍵指派決定;見 docs/adr/0008)。 */
 export type Finger = 'pinky' | 'ring' | 'middle' | 'index';
 
-/** 鍵盤上/家/下排,由列決定。 */
+/** 鍵盤上/家/下排,是被指派鍵的屬性(由鍵指派決定)。 */
 export type Bank = 'top' | 'home' | 'bottom';
 
 /** 音符種類。01 僅產生 press;hold 於 issue 03/08 才出現。 */
@@ -21,7 +21,7 @@ export interface Note {
   readonly kind: NoteKind;
   /** 僅 hold:長按結束秒數。 */
   readonly holdEndSec?: number;
-  // ── 渲染中繼(比 key 更原始;映射表為 (hand,finger,bank) → key)──
+  // ── 渲染中繼:hand 由顏色決定;finger/bank 為被指派鍵的屬性(高速公路實際靠 key 定道)。──
   readonly hand: Hand;
   readonly finger: Finger;
   readonly bank: Bank;
@@ -30,9 +30,10 @@ export interface Note {
 /** compileChart 的輸出:依 tSec 排序、一次一鍵的按鍵時間軸。 */
 export type TypingChart = readonly Note[];
 
-/** compileChart 的組態。01 尚無編譯期 config;後續 issue(burst 間隔、hold 容差等)擴充。 */
+/** compileChart 的組態。 */
 export interface CompileConfig {
-  readonly _reserved?: never;
+  /** 鍵指派可玩性硬底線:同手同指的最小間隔秒數(預設 0.12)。見 docs/adr/0008。 */
+  readonly minSameFingerGapSec?: number;
 }
 
 /** 一個難度的指標(來自 Info.dat)。 */
