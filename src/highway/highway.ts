@@ -8,6 +8,7 @@ import { glyphOf } from '../compile/mapping.ts';
 import type { Hand, TypingChart } from '../compile/types.ts';
 import { Judger } from '../judge/judge.ts';
 import { DEFAULT_JUDGE_CONFIG, type PressOutcome } from '../judge/types.ts';
+import { loadSettings, patchSettings, SETTINGS_SPEC, type Settings } from '../settings/settings.ts';
 
 export interface HighwayDeps {
   /** 顯示用歌名(資訊卡)。 */
@@ -67,10 +68,6 @@ const COMBO_TIERS: readonly { min: number; color: string }[] = [
 ];
 const comboTier = (combo: number): number => COMBO_TIERS.findIndex((t) => combo >= t.min);
 
-const FLIGHT_DEFAULT = 1.75;
-const OFFSET_DEFAULT = 0;
-const VOLUME_DEFAULT = 0.3; // 預設 tick 峰值 ~0.3(≈舊固定 0.28);對齊滑桿 0.05 步進;最大 100% = 峰值 1.0(舊上限兩倍)
-
 // 判定回饋字樣與顏色。
 const FLASH_LABEL = { perfect: 'PERFECT', good: 'GOOD', miss: 'MISS' } as const;
 const FLASH_COLOR = { perfect: '#ffd23f', good: '#5ad17a', miss: '#ff5e5e' } as const;
@@ -105,10 +102,12 @@ export function startHighway(
   deps: HighwayDeps,
   player: AudioPlayer,
 ): () => void {
-  let flightTime = FLIGHT_DEFAULT;
+  // 啟動時讀持久偏好當初值(飛行時間 / offset / 音量);缺值由 loadSettings 補預設(issue 12)。
+  const settings = loadSettings();
+  let flightTime = settings.flightTime;
   // offset 與判定共用同一份 config;滑桿更新 offsetSec,同時影響視覺與判定(PRD)。
   // 刻意不標 JudgeConfig(其 offsetSec 為 readonly);可變物件仍可傳給 Judger。
-  const judgeConfig = { ...DEFAULT_JUDGE_CONFIG, offsetSec: OFFSET_DEFAULT };
+  const judgeConfig = { ...DEFAULT_JUDGE_CONFIG, offsetSec: settings.offsetSec };
   let judger: Judger | null = null;
 
   const container = document.createElement('div');
@@ -121,7 +120,7 @@ export function startHighway(
   ensureHudStyle();
   container.appendChild(canvas);
   container.appendChild(buildInfoCard(deps));
-  container.appendChild(buildControls());
+  container.appendChild(buildControls(settings));
   container.appendChild(buildFeedback());
   root.replaceChildren(container);
 
@@ -377,22 +376,26 @@ export function startHighway(
   const flightVal = container.querySelector<HTMLSpanElement>('.bt-flight-val')!;
   const offsetInput = container.querySelector<HTMLInputElement>('.bt-offset')!;
   const offsetVal = container.querySelector<HTMLSpanElement>('.bt-offset-val')!;
+  // 三滑桿:input 時即時套用到遊戲,並順手 patchSettings 持久化(issue 12,單 listener)。
   flightInput.addEventListener('input', () => {
     flightTime = Number(flightInput.value);
     flightVal.textContent = `${flightTime.toFixed(2)}s`;
+    patchSettings({ flightTime });
   });
   offsetInput.addEventListener('input', () => {
     judgeConfig.offsetSec = Number(offsetInput.value);
     offsetVal.textContent = `${judgeConfig.offsetSec >= 0 ? '+' : ''}${judgeConfig.offsetSec.toFixed(3)}s`;
+    patchSettings({ offsetSec: judgeConfig.offsetSec });
   });
 
   // 按鍵音量:縮放 tick 峰值(0=靜音)。共用同一個 player,切視圖也保留設定。
   const volumeInput = container.querySelector<HTMLInputElement>('.bt-volume')!;
   const volumeVal = container.querySelector<HTMLSpanElement>('.bt-volume-val')!;
-  player.tickVolume = Number(volumeInput.value);
+  player.tickVolume = settings.tickVolume;
   volumeInput.addEventListener('input', () => {
     player.tickVolume = Number(volumeInput.value);
     volumeVal.textContent = `${Math.round(player.tickVolume * 100)}%`;
+    patchSettings({ tickVolume: player.tickVolume });
   });
 
   return () => {
@@ -478,7 +481,7 @@ function makeGlyphSprite(glyph: string, color = '#ffffff', scale = 0.85, onTop =
 
 // ── 疊在畫布上的 HTML 控制列(底部;右側留白避開「切換預覽」浮鈕) ──
 // 預設隱藏,滑鼠靠近底部或開始前(需按開始鈕)才淡入;由 startHighway 綁定顯隱。
-function buildControls(): HTMLElement {
+function buildControls(settings: Settings): HTMLElement {
   const bar = document.createElement('div');
   bar.className = 'bt-controls';
   bar.style.cssText =
@@ -486,22 +489,26 @@ function buildControls(): HTMLElement {
     'padding:12px 170px 12px 14px;font-family:system-ui,sans-serif;font-size:13px;color:#cdd3df;' +
     'background:linear-gradient(#0b0d1200,#0b0d12dd);z-index:2;' +
     'transition:opacity .2s ease, transform .2s ease;';
+  // 滑桿 min/max/step 與初值全來自 SETTINGS_SPEC + 持久設定(issue 12),不再寫死。
+  const f = SETTINGS_SPEC.flightTime;
+  const o = SETTINGS_SPEC.offsetSec;
+  const v = SETTINGS_SPEC.tickVolume;
   bar.innerHTML = `
     <button type="button" class="bt-start"
       style="font-size:15px;padding:8px 20px;cursor:pointer;border:0;border-radius:6px;background:#2e86d6;color:#fff;">
       ▶ 開始
     </button>
     <label style="display:flex;gap:6px;align-items:center;">飛行時間
-      <input type="range" class="bt-flight" min="0.8" max="3" step="0.05" value="${FLIGHT_DEFAULT}" />
-      <span class="bt-flight-val" style="width:44px;">${FLIGHT_DEFAULT.toFixed(2)}s</span>
+      <input type="range" class="bt-flight" min="${f.min}" max="${f.max}" step="${f.step}" value="${settings.flightTime}" />
+      <span class="bt-flight-val" style="width:44px;">${settings.flightTime.toFixed(2)}s</span>
     </label>
     <label style="display:flex;gap:6px;align-items:center;">offset
-      <input type="range" class="bt-offset" min="-0.3" max="0.3" step="0.005" value="${OFFSET_DEFAULT}" />
-      <span class="bt-offset-val" style="width:52px;">+0.000s</span>
+      <input type="range" class="bt-offset" min="${o.min}" max="${o.max}" step="${o.step}" value="${settings.offsetSec}" />
+      <span class="bt-offset-val" style="width:52px;">${settings.offsetSec >= 0 ? '+' : ''}${settings.offsetSec.toFixed(3)}s</span>
     </label>
     <label style="display:flex;gap:6px;align-items:center;">按鍵音量
-      <input type="range" class="bt-volume" min="0" max="1" step="0.05" value="${VOLUME_DEFAULT}" />
-      <span class="bt-volume-val" style="width:40px;">${Math.round(VOLUME_DEFAULT * 100)}%</span>
+      <input type="range" class="bt-volume" min="${v.min}" max="${v.max}" step="${v.step}" value="${settings.tickVolume}" />
+      <span class="bt-volume-val" style="width:40px;">${Math.round(settings.tickVolume * 100)}%</span>
     </label>`;
   return bar;
 }
