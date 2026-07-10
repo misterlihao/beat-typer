@@ -4,6 +4,7 @@ import { AudioPlayer } from './audio/player.ts';
 import { compileChart } from './compile/compileChart.ts';
 import { parseInfo, pickPlayableDifficulty } from './compile/parseInfo.ts';
 import { startHighway } from './highway/highway.ts';
+import { BsrChartSource, parseBsrCode } from './loader/bsr.ts';
 import { BuiltinChartSource } from './loader/builtin.ts';
 import { ZipChartSource } from './loader/zip.ts';
 import type { ChartSource } from './loader/types.ts';
@@ -169,7 +170,18 @@ function showLanding(app: HTMLElement, errorMessage?: string): void {
         <div style="font-size:16px;color:#cdd3df">把 BeatSaver <b>.zip</b> 拖進來</div>
         <div style="font-size:13px;color:#8b93a7;margin-top:6px">或點此選擇檔案</div>
       </label>
-      <div style="margin-top:18px">
+      <div style="display:flex;align-items:center;gap:12px;color:#5b6274;font-size:12px;margin:22px 0 14px">
+        <span style="flex:1;height:1px;background:#2a303c"></span>或用 BeatSaver 代號<span style="flex:1;height:1px;background:#2a303c"></span>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:center">
+        <input id="bt-bsr" type="text" inputmode="latin" autocomplete="off" placeholder="5277c 或 !bsr 5277c"
+          style="flex:0 1 260px;font-size:14px;padding:9px 12px;border:1px solid #4a5163;border-radius:8px;background:#0f1218;color:#cdd3df" />
+        <button id="bt-bsr-go" type="button"
+          style="font-size:14px;padding:9px 18px;cursor:pointer;border:0;border-radius:8px;background:#2e86d6;color:#fff">
+          下載
+        </button>
+      </div>
+      <div style="margin-top:22px">
         <button id="bt-sample" type="button"
           style="font-size:14px;padding:9px 18px;cursor:pointer;border:1px solid #4a5163;border-radius:8px;background:#1b1f2a;color:#cdd3df">
           玩內建範例
@@ -183,20 +195,36 @@ function showLanding(app: HTMLElement, errorMessage?: string): void {
   const drop = app.querySelector<HTMLElement>('#bt-drop')!;
   const fileInput = app.querySelector<HTMLInputElement>('#bt-file')!;
   const sampleBtn = app.querySelector<HTMLButtonElement>('#bt-sample')!;
+  const bsrInput = app.querySelector<HTMLInputElement>('#bt-bsr')!;
+  const bsrGo = app.querySelector<HTMLButtonElement>('#bt-bsr-go')!;
   const errorBox = app.querySelector<HTMLElement>('#bt-error')!;
   if (errorMessage) errorBox.textContent = `載入失敗:${errorMessage}`;
 
-  const setBusy = () => {
-    drop.querySelector('div')!.textContent = '載入中…';
+  const run = (source: ChartSource, busyText = '載入中…') => {
+    drop.querySelector('div')!.textContent = busyText;
     errorBox.textContent = '';
-  };
-  const run = (source: ChartSource) => {
-    setBusy();
     bootstrap(app, source).catch((err: unknown) => {
       console.error(err);
       showLanding(app, err instanceof Error ? err.message : String(err));
     });
   };
+
+  // BSR 下載:解析代號(純代號 / !bsr / URL);格式不對就地報錯,合法則下載(顯示「下載中…」)。
+  const runBsr = () => {
+    const code = parseBsrCode(bsrInput.value);
+    if (!code) {
+      errorBox.textContent = 'BSR 代號格式不對(範例:5277c 或 !bsr 5277c)';
+      return;
+    }
+    run(new BsrChartSource(code), '下載中…');
+  };
+  bsrGo.addEventListener('click', runBsr);
+  bsrInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      runBsr();
+    }
+  });
 
   // 滑鼠點擊由 <label for> 原生開啟選檔視窗(不靠 programmatic click,跨瀏覽器可靠);
   // 鍵盤(label 不會原生回應 Enter/Space)才走 JS 觸發。
