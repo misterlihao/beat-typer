@@ -28,7 +28,7 @@ async () => {
   const p = Reflect.get(window,'__btPlayer');
   document.querySelector('.bt-start').click();
   if(!await waitFor(()=>p.isPlaying,1500)) return {error:'audio blocked'};
-  const seq=[[0.05,'KeyA'],[0.55,'KeyW'],[1.05,'KeyC'],[1.55,'KeyF'],[2.05,'KeyU'],[2.55,'KeyK'],[3.05,'Period'],[3.55,'Semicolon']];
+  const seq=[[0.05,'KeyF'],[0.55,'KeyD'],[1.05,'KeyR'],[1.55,'KeyE'],[2.05,'KeyJ'],[2.55,'KeyK'],[3.05,'KeyU'],[3.55,'KeyI']];
   const pressed=new Set(),flashes=new Set(); let maxCombo=0;
   const comboEl=document.querySelector('.bt-combo'),flashEl=document.querySelector('.bt-flash');
   for(let i=0;i<600;i++){const pos=p.positionSec;
@@ -59,4 +59,5 @@ async () => {
 
 ## 內建範例參考(golden)
 
-8 顆、~4 秒:左手 `A W C F` @ tSec 0.05/0.55/1.05/1.55(code `KeyA/KeyW/KeyC/KeyF`);右手 `U K . ;` @ 2.05/2.55/3.05/3.55(`KeyU/KeyK/Period/Semicolon`)。全連 → maxCombo 8。
+8 顆、~4 秒:左手 `F D R E` @ tSec 0.05/0.55/1.05/1.55(code `KeyF/KeyD/KeyR/KeyE`);右手 `J K U I` @ 2.05/2.55/3.05/3.55(`KeyJ/KeyK/KeyU/KeyI`)。全連 → maxCombo 8。
+> 註:鍵由鍵指派依教學權重選(見 docs/adr/0008),非舊的位置映射;映射若再改,這組 golden 也要跟著更新。
