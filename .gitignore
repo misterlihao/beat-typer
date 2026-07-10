@@ -2,3 +2,13 @@ node_modules
 dist
 *.local
 .DS_Store
+
+# 版權防線:真實 Beat Saber 歌曲 / CustomLevels 譜面只在執行時由使用者拖放載入,
+# 絕不進 repo。以下規則防止測試時誤 commit 有版權的音樂 / 譜面包。
+*.zip
+*.egg
+*.ogg
+*.mp3
+CustomLevels/
+# 例外:內建自製範例(gen:audio 合成音階 + 手寫譜面,無版權)
+!public/sample/song.egg
