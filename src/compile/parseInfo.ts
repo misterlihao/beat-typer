@@ -15,6 +15,7 @@ interface RawInfo {
   _songTimeOffset?: number;
   _songFilename?: string;
   _songName?: string;
+  _coverImageFilename?: string;
   _difficultyBeatmapSets?: RawDifficultySet[];
 }
 
@@ -55,12 +56,17 @@ export function parseInfo(infoText: string): SongInfo {
 
   const songName =
     typeof raw._songName === 'string' && raw._songName.length > 0 ? raw._songName : undefined;
+  const coverFilename =
+    typeof raw._coverImageFilename === 'string' && raw._coverImageFilename.length > 0
+      ? raw._coverImageFilename
+      : undefined;
 
   return {
     bpm,
     songTimeOffset: typeof raw._songTimeOffset === 'number' ? raw._songTimeOffset : 0,
     audioFilename,
     songName,
+    coverFilename,
     difficulties,
   };
 }

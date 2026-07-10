@@ -10,7 +10,12 @@ import { Judger } from '../judge/judge.ts';
 import { DEFAULT_JUDGE_CONFIG, type PressOutcome } from '../judge/types.ts';
 
 export interface HighwayDeps {
-  readonly title: string;
+  /** 顯示用歌名(資訊卡)。 */
+  readonly songName: string;
+  /** 顯示用難度標籤,如 "Standard ExpertPlus"(資訊卡)。 */
+  readonly difficultyLabel: string;
+  /** 封面圖 URL;缺漏時資訊卡改用佔位圖。 */
+  readonly coverUrl?: string;
 }
 
 // ── 鍵盤版面:實體按鍵碼 → (欄 0..9 由左到右, 列 0下/1家/2上)。唯一的幾何真實來源。 ──
@@ -40,6 +45,28 @@ const HAND_COLOR: Record<Hand, number> = { left: 0xe0503f, right: 0x2e86d6 };
 const laneX = (col: number) => (col - (COLS - 1) / 2) * LANE_SPACING;
 const rowY = (row: number) => (row - 1) * ROW_SPACING;
 
+// ── 向上彎曲的飛行走廊(去除近/遠螢幕重疊,見 grilling)。 ──
+// 抬升量只依「深度」加在 Y 上:判定平面(z=0)抬升=0(保留鍵盤空間對應),遠端才彎。
+// ease-in:近端 FLAT_FRAC 比例保持平直讓判定進進手感自然;之後二次曲線加速上抬拉開預覽。
+const FLAT_FRAC = 0.35; // 近端保持平直的深度比例
+const LIFT_MAX = 5.5; // 遠端最大抬升(世界單位;實跑微調)
+const liftAt = (z: number): number => {
+  const d = THREE.MathUtils.clamp((PLANE_Z - z) / (PLANE_Z - FAR_Z), 0, 1); // 0=平面 .. 1=遠端
+  if (d <= FLAT_FRAC) return 0;
+  const t = (d - FLAT_FRAC) / (1 - FLAT_FRAC);
+  return LIFT_MAX * t * t;
+};
+const HOLD_SEG = 16; // hold body 沿曲線的分段數(分段貼合)
+
+// combo 多階段:門檻 20/50/100 換色,<20 為白(combo≥2 才顯示)。跨階瞬間數字 pop 放大。
+const COMBO_TIERS: readonly { min: number; color: string }[] = [
+  { min: 100, color: '#ffd23f' }, // 金(沿用判定金色系)
+  { min: 50, color: '#b06ffb' }, // 紫
+  { min: 20, color: '#5ad1c4' }, // 青藍
+  { min: 0, color: '#eef1f7' }, // 白
+];
+const comboTier = (combo: number): number => COMBO_TIERS.findIndex((t) => combo >= t.min);
+
 const FLIGHT_DEFAULT = 1.75;
 const OFFSET_DEFAULT = 0;
 const VOLUME_DEFAULT = 0.3; // 預設 tick 峰值 ~0.3(≈舊固定 0.28);對齊滑桿 0.05 步進;最大 100% = 峰值 1.0(舊上限兩倍)
@@ -59,8 +86,10 @@ interface NoteVisual {
   readonly note: TypingChart[number];
   readonly col: number;
   readonly row: number;
-  readonly box: THREE.Mesh;
   readonly sprite: THREE.Sprite;
+  readonly box?: THREE.Mesh; // press:單一方塊
+  readonly segments?: THREE.Mesh[]; // hold:沿曲線分段貼合的 body
+  readonly material: THREE.Material; // 本音符的材質(press box / hold 各段共用),清理用
 }
 
 /**
@@ -73,7 +102,7 @@ interface NoteVisual {
 export function startHighway(
   root: HTMLElement,
   chart: TypingChart,
-  _deps: HighwayDeps,
+  deps: HighwayDeps,
   player: AudioPlayer,
 ): () => void {
   let flightTime = FLIGHT_DEFAULT;
@@ -83,10 +112,15 @@ export function startHighway(
   let judger: Judger | null = null;
 
   const container = document.createElement('div');
-  container.style.cssText = 'position:relative;width:100%;height:100%;min-height:70vh;background:#0b0d12;';
+  // 視窗填滿:height:100dvh 精準等於視窗高(dvh 連手機工具列伸縮也吸收),overflow:hidden 確保不出卷軸。
+  // 只套在高速公路視圖;表格預覽維持自身可捲動。100vh 為舊瀏覽器 fallback。
+  container.style.cssText =
+    'position:relative;width:100%;height:100vh;height:100dvh;overflow:hidden;background:#0b0d12;';
   const canvas = document.createElement('canvas');
   canvas.style.cssText = 'display:block;width:100%;height:100%;';
+  ensureHudStyle();
   container.appendChild(canvas);
+  container.appendChild(buildInfoCard(deps));
   container.appendChild(buildControls());
   container.appendChild(buildFeedback());
   root.replaceChildren(container);
@@ -98,8 +132,8 @@ export function startHighway(
   scene.fog = new THREE.Fog(0x0b0d12, 25, 70); // 盡頭拉到 FAR_Z 之外,生成點清楚可見
 
   const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 200);
-  camera.position.set(0, 3.4, 8);
-  camera.lookAt(0, 0.2, -18);
+  camera.position.set(0, 3.9, 8);
+  camera.lookAt(0, 1.0, -16); // 稍抬視線中心以框住遠端上彎的音符(相機仍低角度保沉浸感)
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.9));
   const dir = new THREE.DirectionalLight(0xffffff, 0.6);
@@ -127,19 +161,34 @@ export function startHighway(
     mesh.userData.peak = peak;
   };
 
-  // 為每顆音符建 box + glyph sprite,一次建齊,以可見性切換(範例譜面音符少)。
+  // 為每顆音符建 body + glyph sprite,一次建齊,以可見性切換(範例譜面音符少)。
+  // press:單一方塊;hold:HOLD_SEG 段小方塊,每幀重新沿彎曲走廊定位(分段貼合)。
   const visuals: NoteVisual[] = [];
   const boxGeo = new THREE.BoxGeometry(NOTE_SIZE, NOTE_SIZE, NOTE_SIZE);
+  const segGeo = new THREE.BoxGeometry(NOTE_SIZE, NOTE_SIZE, 1); // 單位長,每幀縮放 Z
   chart.forEach((note, index) => {
     const layout = KEY_LAYOUT[note.key];
     if (!layout) return; // 未知鍵碼,略過(理論上不會發生)
     const mat = new THREE.MeshLambertMaterial({ color: HAND_COLOR[note.hand] });
-    const box = new THREE.Mesh(boxGeo, mat);
-    box.visible = false;
-    const sprite = makeGlyphSprite(glyphOf(note.key));
+    const sprite = makeGlyphSprite(glyphOf(note.key), '#ffffff', 0.85, true);
     sprite.visible = false;
-    scene.add(box, sprite);
-    visuals.push({ index, note, col: layout.col, row: layout.row, box, sprite });
+    const base = { index, note, col: layout.col, row: layout.row, sprite, material: mat };
+    if (note.kind === 'hold' && note.holdEndSec !== undefined) {
+      const segments: THREE.Mesh[] = [];
+      for (let i = 0; i < HOLD_SEG; i++) {
+        const seg = new THREE.Mesh(segGeo, mat);
+        seg.visible = false;
+        scene.add(seg);
+        segments.push(seg);
+      }
+      scene.add(sprite);
+      visuals.push({ ...base, segments });
+    } else {
+      const box = new THREE.Mesh(boxGeo, mat);
+      box.visible = false;
+      scene.add(box, sprite);
+      visuals.push({ ...base, box });
+    }
   });
 
   const resize = () => {
@@ -155,51 +204,93 @@ export function startHighway(
   // ── 回饋 DOM ──
   const comboEl = container.querySelector<HTMLDivElement>('.bt-combo')!;
   const flashEl = container.querySelector<HTMLDivElement>('.bt-flash')!;
+  const progressEl = container.querySelector<HTMLDivElement>('.bt-progress-fill')!;
+  const timeEl = container.querySelector<HTMLDivElement>('.bt-time')!;
   let flashStart = -Infinity;
   const flash = (kind: 'perfect' | 'good' | 'miss') => {
     flashEl.textContent = FLASH_LABEL[kind];
     flashEl.style.color = FLASH_COLOR[kind];
     flashStart = performance.now();
   };
+  // combo:≥2 才顯示;跨過 20/50/100 門檻換色,且升級瞬間數字 pop 放大。
+  let lastTier = comboTier(0);
   const showCombo = () => {
     const combo = judger?.currentCombo ?? 0;
-    comboEl.textContent = combo >= 2 ? `${combo} combo` : '';
+    if (combo < 2) {
+      comboEl.textContent = '';
+      lastTier = comboTier(0);
+      return;
+    }
+    comboEl.textContent = `${combo}`;
+    const tier = comboTier(combo);
+    comboEl.style.color = COMBO_TIERS[tier]!.color;
+    if (tier < lastTier) {
+      // tier 索引越小=階越高;升級 → 重播 pop 動畫(移除→reflow→加回)。
+      comboEl.classList.remove('bt-pop');
+      void comboEl.offsetWidth;
+      comboEl.classList.add('bt-pop');
+    }
+    lastTier = tier;
   };
+
+  // mm:ss 時間格式(進度條數字)。
+  const fmtTime = (s: number): string => {
+    const t = Math.max(0, Math.floor(s));
+    return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+  };
+  const showProgress = () => {
+    const dur = player.duration;
+    const frac = dur > 0 ? THREE.MathUtils.clamp(player.positionSec / dur, 0, 1) : 0;
+    progressEl.style.width = `${frac * 100}%`;
+    timeEl.textContent = `${fmtTime(player.positionSec)} / ${fmtTime(dur)}`;
+  };
+  showProgress(); // 進場先顯示 0:00 / 總長
 
   // ── 每幀:音符位置 ──
   const distZ = PLANE_Z - FAR_Z;
   const zAt = (p: number) => FAR_Z + THREE.MathUtils.clamp(p, 0, 1) * distZ;
 
+  const setVisible = (v: NoteVisual, on: boolean) => {
+    v.sprite.visible = on;
+    if (v.box) v.box.visible = on;
+    if (v.segments) for (const s of v.segments) s.visible = on;
+  };
+
   const positionNotes = (now: number) => {
     for (const v of visuals) {
       if (judger?.resultAt(v.index)) {
-        v.box.visible = v.sprite.visible = false; // 已判定 → 收起(回饋靠 combo/閃字)
+        setVisible(v, false); // 已判定 → 收起(回饋靠 combo/閃字)
         continue;
       }
       const arrival = v.note.tSec + judgeConfig.offsetSec;
       const pHead = (now - (arrival - flightTime)) / flightTime;
       const x = laneX(v.col);
-      const y = rowY(v.row);
-      if (v.note.kind === 'hold' && v.note.holdEndSec !== undefined) {
+      const baseY = rowY(v.row);
+      if (v.segments && v.note.holdEndSec !== undefined) {
         const arrivalTail = v.note.holdEndSec + judgeConfig.offsetSec;
         const pTail = (now - (arrivalTail - flightTime)) / flightTime;
         const visible = pHead <= 1 && pTail >= 0;
-        v.box.visible = v.sprite.visible = visible;
+        setVisible(v, visible);
         if (visible) {
+          // body 沿彎曲走廊分段貼合:每段取子區間中點的深度求抬升,縮放 Z 填滿該段。
+          for (let i = 0; i < HOLD_SEG; i++) {
+            const za = zAt(THREE.MathUtils.lerp(pTail, pHead, i / HOLD_SEG));
+            const zb = zAt(THREE.MathUtils.lerp(pTail, pHead, (i + 1) / HOLD_SEG));
+            const zc = (za + zb) / 2;
+            const seg = v.segments[i]!;
+            seg.position.set(x, baseY + liftAt(zc), zc);
+            seg.scale.set(1, 1, Math.max(0.02, (zb - za) * 1.15)); // 略重疊避免接縫
+          }
           const headZ = zAt(pHead);
-          const tailZ = zAt(pTail);
-          const len = Math.max(NOTE_SIZE, headZ - tailZ);
-          v.box.position.set(x, y, (headZ + tailZ) / 2);
-          v.box.scale.set(1, 1, len / NOTE_SIZE);
-          v.sprite.position.set(x, y, headZ + 0.5);
+          v.sprite.position.set(x, baseY + liftAt(headZ), headZ + 0.5);
         }
-      } else {
+      } else if (v.box) {
         const visible = pHead >= 0 && pHead <= 1;
-        v.box.visible = v.sprite.visible = visible;
+        setVisible(v, visible);
         if (visible) {
           const z = zAt(pHead);
+          const y = baseY + liftAt(z);
           v.box.position.set(x, y, z);
-          v.box.scale.set(1, 1, 1);
           v.sprite.position.set(x, y, z + 0.5);
         }
       }
@@ -217,6 +308,7 @@ export function startHighway(
       }
       showCombo();
     }
+    showProgress();
     const age = ts - flashStart; // 回饋閃字淡出
     flashEl.style.opacity = age < FLASH_MS ? String(1 - age / FLASH_MS) : '0';
 
@@ -250,11 +342,30 @@ export function startHighway(
   };
   window.addEventListener('keydown', onKeyDown);
 
+  // ── 控制列自動顯隱:滑鼠靠近底部才淡入;開始前(需按開始鈕)恆顯,不遮遊玩畫面。 ──
+  const bar = container.querySelector<HTMLDivElement>('.bt-controls')!;
+  const REVEAL_PX = 140;
+  let barPinned = true; // 尚未開始 → 恆顯
+  const setBarShown = (shown: boolean) => {
+    bar.style.opacity = shown ? '1' : '0';
+    bar.style.transform = shown ? 'translateY(0)' : 'translateY(100%)';
+    bar.style.pointerEvents = shown ? 'auto' : 'none';
+  };
+  setBarShown(true);
+  const onPointerMove = (e: PointerEvent) => {
+    if (barPinned) return;
+    const rect = container.getBoundingClientRect();
+    setBarShown(e.clientY >= rect.bottom - REVEAL_PX);
+  };
+  container.addEventListener('pointermove', onPointerMove);
+
   // ── 控制 ──
   const startBtn = container.querySelector<HTMLButtonElement>('.bt-start')!;
   startBtn.addEventListener('click', () => {
     void (async () => {
       startBtn.style.display = 'none';
+      barPinned = false; // 開始後改為滑鼠靠近才顯
+      setBarShown(false);
       judger = new Judger(chart, judgeConfig); // 每次開始重建 → 支援重玩
       if (player.positionSec >= player.duration) player.stop();
       await player.play(0);
@@ -288,11 +399,13 @@ export function startHighway(
     cancelAnimationFrame(raf);
     window.removeEventListener('resize', resize);
     window.removeEventListener('keydown', onKeyDown);
+    container.removeEventListener('pointermove', onPointerMove);
     boxGeo.dispose();
+    segGeo.dispose();
     cellGeo.dispose();
     for (const mesh of cells.values()) (mesh.material as THREE.Material).dispose();
     for (const v of visuals) {
-      (v.box.material as THREE.Material).dispose();
+      v.material.dispose(); // press box / hold 各段共用同一材質
       v.sprite.material.map?.dispose();
       v.sprite.material.dispose();
     }
@@ -329,7 +442,9 @@ function buildTargetGrid(): THREE.Group {
 }
 
 // ── 字母 billboard:canvas 貼圖 Sprite,天生面向鏡頭。 ──
-function makeGlyphSprite(glyph: string, color = '#ffffff', scale = 0.85): THREE.Sprite {
+// onTop:音符字母關掉深度測試並拉高 renderOrder,即使 cube 被較近音符擋住,要敲的字母仍恆可讀
+// (同列上/下段在極短同指間隔會短暫 cube 重疊;字母置頂確保不被完全遮蔽)。
+function makeGlyphSprite(glyph: string, color = '#ffffff', scale = 0.85, onTop = false): THREE.Sprite {
   const size = 128;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
@@ -354,19 +469,23 @@ function makeGlyphSprite(glyph: string, color = '#ffffff', scale = 0.85): THREE.
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.anisotropy = 4;
-  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: true });
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: !onTop, depthWrite: false });
   const sprite = new THREE.Sprite(material);
   sprite.scale.set(scale, scale, 1);
+  if (onTop) sprite.renderOrder = 10; // 畫在 cube 之後,永遠可讀
   return sprite;
 }
 
-// ── 疊在畫布上的 HTML 控制列 ──
+// ── 疊在畫布上的 HTML 控制列(底部;右側留白避開「切換預覽」浮鈕) ──
+// 預設隱藏,滑鼠靠近底部或開始前(需按開始鈕)才淡入;由 startHighway 綁定顯隱。
 function buildControls(): HTMLElement {
   const bar = document.createElement('div');
+  bar.className = 'bt-controls';
   bar.style.cssText =
-    'position:absolute;left:0;top:0;right:0;display:flex;gap:16px;align-items:center;flex-wrap:wrap;' +
-    'padding:10px 14px;font-family:system-ui,sans-serif;font-size:13px;color:#cdd3df;' +
-    'background:linear-gradient(#0b0d12cc,#0b0d1200);z-index:2;';
+    'position:absolute;left:0;bottom:0;right:0;display:flex;gap:16px;align-items:center;flex-wrap:wrap;' +
+    'padding:12px 170px 12px 14px;font-family:system-ui,sans-serif;font-size:13px;color:#cdd3df;' +
+    'background:linear-gradient(#0b0d1200,#0b0d12dd);z-index:2;' +
+    'transition:opacity .2s ease, transform .2s ease;';
   bar.innerHTML = `
     <button type="button" class="bt-start"
       style="font-size:15px;padding:8px 20px;cursor:pointer;border:0;border-radius:6px;background:#2e86d6;color:#fff;">
@@ -387,16 +506,66 @@ function buildControls(): HTMLElement {
   return bar;
 }
 
-// ── combo 數(上方中央)+ 判定閃字(中央) ──
+// ── 頂部進度條 + 時間、combo(右上)、判定閃字(中央) ──
 function buildFeedback(): HTMLElement {
   const wrap = document.createElement('div');
   wrap.style.cssText =
     'position:absolute;inset:0;pointer-events:none;font-family:system-ui,sans-serif;z-index:1;';
-  // combo:左下角計數器(離控制列與來襲走廊都遠、不搶戲又看得到);閃字:上方中央大字(不擋來襲音符)。
+  // 進度條:頂端全寬細線 + 時間數字(置中、細線正下方);combo:右上角(多階段換色 + 升級 pop);
+  // 閃字:上方中央大字(不擋來襲音符)。
   wrap.innerHTML = `
-    <div class="bt-combo" style="position:absolute;left:16px;bottom:14px;
-      font-size:23px;font-weight:800;color:#eef1f7;opacity:0.9;text-shadow:0 2px 6px #000;"></div>
-    <div class="bt-flash" style="position:absolute;top:10%;left:0;right:0;text-align:center;
+    <div class="bt-progress" style="position:absolute;top:0;left:0;right:0;height:8px;background:#1e2430;">
+      <div class="bt-progress-fill" style="height:100%;width:0;background:#6ea8fe;transition:width .1s linear;"></div>
+    </div>
+    <div class="bt-time" style="position:absolute;top:14px;left:0;right:0;text-align:center;
+      font-size:16px;font-variant-numeric:tabular-nums;color:#8b93a7;text-shadow:0 1px 3px #000;"></div>
+    <div class="bt-combo" style="position:absolute;right:20px;top:18px;
+      font-size:58px;font-weight:800;color:#eef1f7;opacity:0.95;text-shadow:0 2px 8px #000;
+      transform-origin:100% 50%;line-height:1;"></div>
+    <div class="bt-flash" style="position:absolute;top:12%;left:0;right:0;text-align:center;
       font-size:44px;font-weight:900;opacity:0;text-shadow:0 2px 10px #000;"></div>`;
   return wrap;
+}
+
+// ── 左上角譜面資訊卡:封面(缺圖→佔位)+ 歌名 + 難度,全程常駐。 ──
+function buildInfoCard(deps: HighwayDeps): HTMLElement {
+  const card = document.createElement('div');
+  card.style.cssText =
+    'position:absolute;left:12px;top:12px;z-index:2;display:flex;gap:10px;align-items:center;' +
+    'max-width:44%;padding:8px 12px 8px 8px;border-radius:10px;' +
+    'background:#12151dcc;border:1px solid #2a3040;font-family:system-ui,sans-serif;' +
+    'backdrop-filter:blur(3px);';
+  const cover = deps.coverUrl
+    ? `<img src="${deps.coverUrl}" alt=""
+         style="width:44px;height:44px;border-radius:6px;object-fit:cover;display:block;flex:0 0 auto;" />`
+    : `<div style="width:44px;height:44px;border-radius:6px;flex:0 0 auto;display:flex;
+         align-items:center;justify-content:center;font-size:22px;color:#8b93a7;
+         background:linear-gradient(135deg,#2a3142,#1a1f2b);">♪</div>`;
+  card.innerHTML = `
+    ${cover}
+    <div style="min-width:0;">
+      <div title="${escapeAttr(deps.songName)}" style="font-size:14px;font-weight:700;color:#eef1f7;
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:26ch;">${escapeHtml(deps.songName)}</div>
+      <div style="font-size:12px;color:#8b93a7;margin-top:2px;">${escapeHtml(deps.difficultyLabel)}</div>
+    </div>`;
+  return card;
+}
+
+// 一次性注入 HUD 的 keyframes(combo 升級 pop)。多次呼叫只注入一次。
+function ensureHudStyle(): void {
+  if (document.getElementById('bt-hud-style')) return;
+  const style = document.createElement('style');
+  style.id = 'bt-hud-style';
+  style.textContent = `
+    @keyframes bt-combo-pop { 0% { transform: scale(1.45); } 100% { transform: scale(1); } }
+    .bt-combo.bt-pop { animation: bt-combo-pop 260ms cubic-bezier(.2,.9,.3,1); }`;
+  document.head.appendChild(style);
+}
+
+// 文字/屬性轉義(歌名可能含 < & " 等字元)。
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
+}
+function escapeAttr(s: string): string {
+  return escapeHtml(s).replace(/"/g, '&quot;');
 }

@@ -50,6 +50,8 @@ export interface SongInfo {
   readonly audioFilename: string;
   /** 給玩家看的歌名(Info.dat 的 _songName);缺漏時 undefined,由呼叫端 fallback。 */
   readonly songName?: string;
+  /** 封面圖檔名(Info.dat 的 _coverImageFilename);缺漏/空字串時 undefined,由呼叫端改用佔位圖。 */
+  readonly coverFilename?: string;
   readonly difficulties: readonly DifficultyRef[];
 }
 

@@ -12,6 +12,43 @@ import type { TypingChart } from './compile/types.ts';
 
 const decoder = new TextDecoder('utf-8');
 
+// 目前這首歌的封面 object URL;載入新歌前先 revoke 舊的,避免累積洩漏。
+let currentCoverUrl: string | undefined;
+
+/** 讀封面圖 bytes → object URL;缺檔名或讀/建失敗一律回 undefined(靜默略過,改用佔位圖)。 */
+async function loadCoverUrl(song: { readFile(name: string): Promise<ArrayBuffer> }, filename?: string): Promise<string | undefined> {
+  if (!filename) return undefined;
+  try {
+    const bytes = await song.readFile(filename);
+    return URL.createObjectURL(new Blob([bytes]));
+  } catch {
+    return undefined; // 封面缺漏不該讓遊戲載入失敗
+  }
+}
+
+// DEV-only:重現同列上段遮下段的合成譜面(上段先到=較近,下段緊隨於後=較遠)。
+// Y/N=右內側食指(col5 上/下)、T/B=左內側食指(col4 上/下);gap 掃過 0.15~0.5s。
+function makeOcclusionTestChart(): TypingChart {
+  const mk = (tSec: number, key: string, bank: 'top' | 'bottom', hand: 'left' | 'right'): TypingChart[number] => ({
+    tSec,
+    key,
+    kind: 'press',
+    hand,
+    finger: 'index',
+    bank,
+  });
+  return [
+    mk(0.6, 'KeyY', 'top', 'right'),
+    mk(0.78, 'KeyN', 'bottom', 'right'), // gap .18
+    mk(1.4, 'KeyT', 'top', 'left'),
+    mk(1.65, 'KeyB', 'bottom', 'left'), // gap .25
+    mk(2.3, 'KeyY', 'top', 'right'),
+    mk(2.65, 'KeyN', 'bottom', 'right'), // gap .35
+    mk(3.2, 'KeyT', 'top', 'left'),
+    mk(3.65, 'KeyB', 'bottom', 'left'), // gap .45
+  ];
+}
+
 async function bootstrap(root: HTMLElement, source: ChartSource): Promise<void> {
   const songs = await source.listSongs();
   const song = songs[0];
@@ -26,10 +63,15 @@ async function bootstrap(root: HTMLElement, source: ChartSource): Promise<void> 
   const diffText = decoder.decode(await song.readFile(diff.filename));
 
   // 3) 編譯成 TypingChart(純函式,唯一正規化點)。
-  const chart = compileChart(
+  let chart = compileChart(
     { infoText, difficultyFiles: { [diff.filename]: diffText } },
     diff.difficulty,
   );
+
+  // DEV-only:?occtest 用合成譜面重現「同列上段遮下段」的遮蔽(Y/N、T/B),供 playtest 驗修正。
+  if (import.meta.env.DEV && new URLSearchParams(location.search).has('occtest')) {
+    chart = makeOcclusionTestChart();
+  }
 
   // 4) 讀音訊 bytes → 交給音訊層解碼(不經 compileChart)。
   const player = new AudioPlayer();
@@ -43,10 +85,19 @@ async function bootstrap(root: HTMLElement, source: ChartSource): Promise<void> 
   // DEV-only 診斷 hook:方便在瀏覽器對齊音訊時鐘做手動/自動驗證。正式建置不掛。
   if (import.meta.env.DEV) Reflect.set(window, '__btPlayer', player);
 
-  // 5) 主視圖:3D 高速公路;可切換到表格預覽(開發驗證工具)。
+  // 5) 封面圖:載入新歌前 revoke 舊 URL;缺封面時 coverUrl=undefined,資訊卡改用佔位圖。
+  if (currentCoverUrl) URL.revokeObjectURL(currentCoverUrl);
+  currentCoverUrl = await loadCoverUrl(song, info.coverFilename);
+
+  // 6) 主視圖:3D 高速公路;可切換到表格預覽(開發驗證工具)。
   //    歌名優先用 Info.dat 的 _songName(source 不 parse);缺漏才 fallback 到 SongHandle.title。
+  const songName = info.songName ?? song.title;
+  const difficultyLabel = `${diff.characteristic} ${diff.difficulty}`;
   mountViews(root, chart, player, {
-    title: `${info.songName ?? song.title} — ${diff.characteristic} ${diff.difficulty}`,
+    title: `${songName} — ${difficultyLabel}`,
+    songName,
+    difficultyLabel,
+    coverUrl: currentCoverUrl,
     bpm: info.bpm,
     songTimeOffset: info.songTimeOffset,
   });
@@ -54,6 +105,9 @@ async function bootstrap(root: HTMLElement, source: ChartSource): Promise<void> 
 
 interface ViewDeps {
   readonly title: string;
+  readonly songName: string;
+  readonly difficultyLabel: string;
+  readonly coverUrl?: string;
   readonly bpm: number;
   readonly songTimeOffset: number;
 }
@@ -82,7 +136,12 @@ function mountViews(root: HTMLElement, chart: TypingChart, player: AudioPlayer, 
     if (player.isPlaying) player.pause();
     if (view === 'highway') {
       toggle.textContent = '切換到表格預覽';
-      cleanup = startHighway(viewRoot, chart, { title: deps.title }, player);
+      cleanup = startHighway(
+        viewRoot,
+        chart,
+        { songName: deps.songName, difficultyLabel: deps.difficultyLabel, coverUrl: deps.coverUrl },
+        player,
+      );
     } else {
       toggle.textContent = '切換到 3D 高速公路';
       cleanup = renderPreview(viewRoot, chart, deps, player);
