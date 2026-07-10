@@ -2,14 +2,15 @@
 // 內建範例 → parseInfo → compileChart → 表格預覽 + 音訊播放。
 import { AudioPlayer } from './audio/player.ts';
 import { compileChart } from './compile/compileChart.ts';
-import { parseInfo, pickPlayableDifficulty } from './compile/parseInfo.ts';
+import { buildDifficultyMenu, noteStats } from './compile/difficultyMenu.ts';
+import { parseInfo } from './compile/parseInfo.ts';
 import { startHighway } from './highway/highway.ts';
 import { BsrChartSource, parseBsrCode } from './loader/bsr.ts';
 import { BuiltinChartSource } from './loader/builtin.ts';
 import { ZipChartSource } from './loader/zip.ts';
-import type { ChartSource } from './loader/types.ts';
+import type { ChartSource, SongHandle } from './loader/types.ts';
 import { renderPreview } from './preview/renderTable.ts';
-import type { TypingChart } from './compile/types.ts';
+import type { DifficultyRef, SongInfo, TypingChart } from './compile/types.ts';
 
 const decoder = new TextDecoder('utf-8');
 
@@ -55,26 +56,115 @@ async function bootstrap(root: HTMLElement, source: ChartSource): Promise<void> 
   const song = songs[0];
   if (!song) throw new Error('來源沒有任何歌曲');
 
-  // 1) 讀 Info.dat → 淺解析,取得 BPM / offset / 音訊檔 / 難度清單。
+  // 讀 Info.dat → 淺解析(BPM / 音訊檔 / 難度清單),再進難度選擇畫面(issue 17)。
   const infoText = decoder.decode(await song.readFile('Info.dat'));
   const info = parseInfo(infoText);
+  await showDifficultyScreen(root, song, info, infoText);
+}
 
-  // 2) 選難度:略過無音符的 Lightshow、優先 Standard(難度選單留 issue 05)。只讀選定難度檔(惰性)。
-  const diff = pickPlayableDifficulty(info.difficulties);
-  const diffText = decoder.decode(await song.readFile(diff.filename));
+/**
+ * 難度選擇畫面(issue 17):列出可玩難度(濾 Lightshow、標準序、多特性分組)+ NPS 粗估。
+ * 開畫面前預讀所有可玩難度檔算 NPS 並快取,選定後直接重用(不重讀)。選定 → startSong;返回 → 著陸畫面。
+ */
+async function showDifficultyScreen(
+  root: HTMLElement,
+  song: SongHandle,
+  info: SongInfo,
+  infoText: string,
+): Promise<void> {
+  const groups = buildDifficultyMenu(info.difficulties);
+  if (groups.length === 0) throw new Error('這張譜沒有可玩難度(只有燈光譜)');
 
-  // 3) 編譯成 TypingChart(純函式,唯一正規化點)。
-  let chart = compileChart(
-    { infoText, difficultyFiles: { [diff.filename]: diffText } },
-    diff.difficulty,
-  );
+  // 預讀每個可玩難度檔 → 快取文字 + NPS 粗估(NPS ≈ 音符數 ÷ 末拍秒數,常數 BPM 近似)。
+  const cache = new Map<string, string>();
+  const npsLabel = new Map<string, string>();
+  for (const g of groups) {
+    for (const d of g.difficulties) {
+      try {
+        const text = decoder.decode(await song.readFile(d.filename));
+        cache.set(d.filename, text);
+        const { count, lastBeat } = noteStats(text);
+        const nps = lastBeat > 0 ? count / ((lastBeat * 60) / info.bpm) : 0;
+        npsLabel.set(d.filename, nps > 0 ? `${nps.toFixed(1)} NPS` : '');
+      } catch {
+        npsLabel.set(d.filename, ''); // 讀失敗 → 無 NPS;真正的錯誤留待選定後編譯時暴露
+      }
+    }
+  }
+
+  const songName = info.songName ?? song.title;
+  root.innerHTML = `
+    <div style="font-family:system-ui,sans-serif;color:#cdd3df;max-width:640px;margin:10vh auto;padding:0 20px">
+      <button id="bt-back" type="button"
+        style="font-size:13px;padding:6px 12px;cursor:pointer;border:1px solid #4a5163;border-radius:8px;background:#1b1f2a;color:#cdd3df">
+        ← 返回
+      </button>
+      <h1 id="bt-song" style="font-size:24px;margin:18px 0 4px;text-align:center"></h1>
+      <p style="color:#8b93a7;margin:0 0 26px;text-align:center;font-size:13px">選擇難度</p>
+      <div id="bt-groups"></div>
+      <div id="bt-error" style="min-height:22px;margin-top:18px;color:#e05656;white-space:pre-wrap;text-align:center"></div>
+    </div>`;
+  root.querySelector<HTMLElement>('#bt-song')!.textContent = songName;
+  const errorBox = root.querySelector<HTMLElement>('#bt-error')!;
+  const groupsBox = root.querySelector<HTMLElement>('#bt-groups')!;
+
+  const pick = (diff: DifficultyRef) => {
+    errorBox.textContent = '';
+    startSong(root, song, info, infoText, diff, cache.get(diff.filename)).catch((err: unknown) => {
+      console.error(err);
+      showLanding(root, err instanceof Error ? err.message : String(err));
+    });
+  };
+
+  const showGroupHeader = groups.length > 1;
+  for (const g of groups) {
+    if (showGroupHeader) {
+      const h = document.createElement('div');
+      h.textContent = g.characteristic;
+      h.style.cssText = 'font-size:12px;color:#8b93a7;margin:14px 0 8px;letter-spacing:1px';
+      groupsBox.appendChild(h);
+    }
+    for (const d of g.difficulties) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.style.cssText =
+        'display:flex;justify-content:space-between;align-items:center;width:100%;margin:0 0 8px;' +
+        'font-size:15px;padding:12px 16px;cursor:pointer;border:1px solid #4a5163;border-radius:10px;' +
+        'background:#161a24;color:#cdd3df';
+      const name = document.createElement('span');
+      name.textContent = d.difficulty;
+      const nps = document.createElement('span');
+      nps.textContent = npsLabel.get(d.filename) ?? '';
+      nps.style.cssText = 'color:#8b93a7;font-size:13px';
+      btn.append(name, nps);
+      btn.addEventListener('click', () => pick(d));
+      groupsBox.appendChild(btn);
+    }
+  }
+
+  root.querySelector<HTMLButtonElement>('#bt-back')!.addEventListener('click', () => showLanding(root));
+}
+
+/** 編譯選定難度 + 解碼音訊 + 封面 → 掛載高速公路。cachedDiffText 為難度畫面預讀的文字(免重讀)。 */
+async function startSong(
+  root: HTMLElement,
+  song: SongHandle,
+  info: SongInfo,
+  infoText: string,
+  diff: DifficultyRef,
+  cachedDiffText?: string,
+): Promise<void> {
+  const diffText = cachedDiffText ?? decoder.decode(await song.readFile(diff.filename));
+
+  // 編譯成 TypingChart(純函式,唯一正規化點)。
+  let chart = compileChart({ infoText, difficultyFiles: { [diff.filename]: diffText } }, diff.difficulty);
 
   // DEV-only:?occtest 用合成譜面重現「同列上段遮下段」的遮蔽(Y/N、T/B),供 playtest 驗修正。
   if (import.meta.env.DEV && new URLSearchParams(location.search).has('occtest')) {
     chart = makeOcclusionTestChart();
   }
 
-  // 4) 讀音訊 bytes → 交給音訊層解碼(不經 compileChart)。
+  // 讀音訊 bytes → 交給音訊層解碼(不經 compileChart)。
   const player = new AudioPlayer();
   const audioBytes = await song.readFile(info.audioFilename);
   try {
@@ -86,12 +176,11 @@ async function bootstrap(root: HTMLElement, source: ChartSource): Promise<void> 
   // DEV-only 診斷 hook:方便在瀏覽器對齊音訊時鐘做手動/自動驗證。正式建置不掛。
   if (import.meta.env.DEV) Reflect.set(window, '__btPlayer', player);
 
-  // 5) 封面圖:載入新歌前 revoke 舊 URL;缺封面時 coverUrl=undefined,資訊卡改用佔位圖。
+  // 封面圖:載入新歌前 revoke 舊 URL;缺封面時 coverUrl=undefined,資訊卡改用佔位圖。
   if (currentCoverUrl) URL.revokeObjectURL(currentCoverUrl);
   currentCoverUrl = await loadCoverUrl(song, info.coverFilename);
 
-  // 6) 主視圖:3D 高速公路;可切換到表格預覽(開發驗證工具)。
-  //    歌名優先用 Info.dat 的 _songName(source 不 parse);缺漏才 fallback 到 SongHandle.title。
+  // 主視圖:3D 高速公路;可切換到表格預覽(開發驗證工具)。
   const songName = info.songName ?? song.title;
   const difficultyLabel = `${diff.characteristic} ${diff.difficulty}`;
   mountViews(root, chart, player, {

@@ -1,6 +1,9 @@
-# 05 — CustomLevels 資料夾讀取 + 難度選單
+# 05 — CustomLevels 資料夾讀取(+ 選歌畫面)
 
 > 來源:docs/PRD.md
+> **拆分(2026-07-11)**:原綁的「難度選單」已獨立為 [issue 17](17-difficulty-select-menu.md) 並完成(惠及全來源)。
+> 本 issue 縮為「CustomLevels 資料夾來源 + 多首選歌畫面」,Chromium-only、需手動實跑驗證,延後。
+> 資料夾多首載入後,每首仍走 issue 17 的難度選擇畫面。
 
 ## What to build
 
