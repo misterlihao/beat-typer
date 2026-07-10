@@ -25,6 +25,18 @@
 - [ ] 渲染/音訊維持薄層;compileChart / judge 純函式不變
 - [ ] 實跑驗證:暫停/繼續/重開在瀏覽器行為正確(playtest-highway)
 
+## 設計定案(grill-with-docs,2026-07-11)
+
+- **暫停/繼續鍵**:`Space` 與 `Escape` **都**切換暫停/繼續(皆非遊戲鍵),按下 `preventDefault`(防捲動/防誤觸隱藏的開始鈕)。
+  僅在「遊玩中/暫停中」作用;idle / ended 忽略。開始維持畫面按鈕(不讓 Space 兼開始,語意單純)。
+- **暫停覆蓋層**:半透明暗幕 + 「暫停中」+〔繼續〕〔重新開始〕兩鈕(可點、可 Tab+Enter)。
+  「重新開始」入口只兩處:暫停覆蓋層、歌曲結束畫面(想中途重來 → 先 Space 暫停 → 重新開始;不在遊玩畫面常駐擋視線)。
+- **失焦自動暫停**:監聽 `document.visibilitychange`,一 hidden 就走暫停路徑。堵掉「背景分頁凍結 rAF 但音訊續播 →
+  回來時 `expiry(now)` 把整段一次判 Miss、combo 全斷」的 correctness bug(複用同套暫停邏輯)。
+- **重新開始 = 可重用 reset 函式**(startHighway 內):重建 Judger、清 combo/閃字/格子發光、還原音符可見性、`play(0)`、
+  必要時重啟 rAF、收掉覆蓋層。issue 09 重玩鈕日後直接呼叫,不寫第二份。
+- **測試接縫**:控制全在 highway 薄層、無純接縫 → **僅靠 playtest-highway 實跑驗**(暫停/繼續/重開/失焦),不寫 vitest。
+
 ## Blocked by / 關聯
 
 - **與 issue 09(結算畫面)重疊**:09 的「重玩同一張同難度」即本 issue 的「重新開始」。建議「重新開始」邏輯在此做成可重用函式,09 的重玩鈕直接呼叫,避免兩份重置邏輯。

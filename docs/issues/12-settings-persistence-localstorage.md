@@ -31,6 +31,17 @@ I/O / 渲染仍薄層;純函式接縫完全不受影響、不引入 localStorage
 - [ ] 設定層與 compileChart / judge 解耦;二者不 import 也不觸及 localStorage
 - [ ] 三滑桿初值來自持久設定(不再由 HTML 寫死),顯示文字同步
 
+## 設計定案(grill-with-docs,2026-07-11)
+
+- **範圍單一真相**:`src/settings/settings.ts` 匯出 `SETTINGS_SPEC`,每欄位存 `{ default, min, max, step }`
+  (flightTime 1.75/0.8/3/0.05、offsetSec 0/−0.3/0.3/0.005、tickVolume 0.3/0/1/0.05)。
+  highway 的滑桿 `min/max/step/初值` 全從 `SETTINGS_SPEC` + `loadSettings()` 生成,**不再寫死於 HTML 樣板**;
+  夾範圍的界線與滑桿屬性共用同一份規格,消除漂移(取代 [highway.ts:495-503](../../src/highway/highway.ts#L495-L503) 的寫死值)。
+- **API**:`loadSettings(): Settings`(讀 → parse → 夾 → 補預設)、`patchSettings(partial): void`(寫回單一 blob `beat-typer:settings`)。
+- **寫回時機**:就在既有 `input` handler 裡順手 `patchSettings`(單 listener;blob ~60 bytes,同步寫無感)。
+- **測試接縫**:抽純函式 `coerceSettings(raw: unknown): Settings`(壞 JSON→預設、缺欄位→預設、超範圍→夾、合法→原樣)寫 fixtures;
+  localStorage 讀寫為薄 I/O 層,**不 mock、不測**。settings 模組不 import compileChart/judge。
+
 ## Blocked by / 關聯
 
 - 無阻擋(highway 設定已存在)。
