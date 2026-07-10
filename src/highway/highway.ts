@@ -405,6 +405,8 @@ export function startHighway(
   // 從 0 完整重來:重建 Judger、清狀態、play(0)、啟動迴圈。開始鈕與重新開始鈕共用。
   const beginFromZero = async () => {
     hideOverlay();
+    barPinned = false; // 遊玩中改為滑鼠靠近才顯(從暫停按重開時也還原)
+    setBarShown(false);
     judger = new Judger(chart, judgeConfig);
     resetVisualState();
     await player.play(0);
@@ -417,10 +419,14 @@ export function startHighway(
     stopLoop();
     state = 'paused';
     showOverlay('paused');
+    barPinned = true; // 暫停中固定顯示控制列,讓玩家能就地調整滑桿(疊在覆蓋層之上)
+    setBarShown(true);
   };
   const resumeRun = () => {
     if (state !== 'paused') return;
     hideOverlay();
+    barPinned = false; // 還原遊玩中的自動顯隱
+    setBarShown(false);
     state = 'playing';
     void player.play(); // 從凍結位置續播
     startLoop();
@@ -429,8 +435,6 @@ export function startHighway(
   startBtn.addEventListener('click', () => {
     void (async () => {
       startBtn.style.display = 'none';
-      barPinned = false; // 開始後改為滑鼠靠近才顯
-      setBarShown(false);
       await beginFromZero();
     })();
   });
@@ -584,7 +588,7 @@ function buildControls(settings: Settings): HTMLElement {
   bar.style.cssText =
     'position:absolute;left:0;bottom:0;right:0;display:flex;gap:16px;align-items:center;flex-wrap:wrap;' +
     'padding:12px 170px 12px 14px;font-family:system-ui,sans-serif;font-size:13px;color:#cdd3df;' +
-    'background:linear-gradient(#0b0d1200,#0b0d12dd);z-index:2;' +
+    'background:linear-gradient(#0b0d1200,#0b0d12dd);z-index:6;' + // 高於暫停覆蓋層(5),暫停中滑桿仍可操作
     'transition:opacity .2s ease, transform .2s ease;';
   // 滑桿 min/max/step 與初值全來自 SETTINGS_SPEC + 持久設定(issue 12),不再寫死。
   const f = SETTINGS_SPEC.flightTime;
