@@ -128,14 +128,14 @@ async function showDifficultyScreen(
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.style.cssText =
-        'display:flex;justify-content:space-between;align-items:center;width:100%;margin:0 0 8px;' +
-        'font-size:15px;padding:12px 16px;cursor:pointer;border:1px solid #4a5163;border-radius:10px;' +
+        'display:flex;justify-content:space-between;align-items:center;width:100%;margin:0 0 12px;' +
+        'font-size:19px;padding:22px 24px;cursor:pointer;border:1px solid #4a5163;border-radius:12px;' +
         'background:#161a24;color:#cdd3df';
       const name = document.createElement('span');
       name.textContent = d.difficulty;
       const nps = document.createElement('span');
       nps.textContent = npsLabel.get(d.filename) ?? '';
-      nps.style.cssText = 'color:#8b93a7;font-size:13px';
+      nps.style.cssText = 'color:#8b93a7;font-size:14px';
       btn.append(name, nps);
       btn.addEventListener('click', () => pick(d));
       groupsBox.appendChild(btn);
