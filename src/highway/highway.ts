@@ -122,6 +122,7 @@ export function startHighway(
   container.appendChild(buildInfoCard(deps));
   container.appendChild(buildControls(settings));
   container.appendChild(buildFeedback());
+  container.appendChild(buildPauseOverlay());
   root.replaceChildren(container);
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -297,6 +298,8 @@ export function startHighway(
   };
 
   let raf = 0;
+  // 遊戲狀態機(issue 13):idle → playing ⇄ paused;playing → ended。控制鍵與覆蓋層據此。
+  let state: 'idle' | 'playing' | 'paused' | 'ended' = 'idle';
   const loop = (ts: number) => {
     const now = player.positionSec;
     if (judger) {
@@ -321,6 +324,13 @@ export function startHighway(
     positionNotes(now);
     renderer.render(scene, camera);
     raf = requestAnimationFrame(loop);
+  };
+  const startLoop = () => {
+    if (!raf) raf = requestAnimationFrame(loop);
+  };
+  const stopLoop = () => {
+    cancelAnimationFrame(raf);
+    raf = 0;
   };
 
   positionNotes(-Infinity); // 進場靜態畫面(格線),按下開始才播放並啟動迴圈
@@ -358,19 +368,103 @@ export function startHighway(
   };
   container.addEventListener('pointermove', onPointerMove);
 
-  // ── 控制 ──
+  // ── 控制:開始 / 暫停 / 繼續 / 重新開始(issue 13) ──
   const startBtn = container.querySelector<HTMLButtonElement>('.bt-start')!;
+  const overlay = container.querySelector<HTMLDivElement>('.bt-overlay')!;
+  const overlayTitle = container.querySelector<HTMLDivElement>('.bt-overlay-title')!;
+  const resumeBtn = container.querySelector<HTMLButtonElement>('.bt-resume')!;
+  const restartBtn = container.querySelector<HTMLButtonElement>('.bt-restart')!;
+  const overlayHint = container.querySelector<HTMLDivElement>('.bt-overlay-hint')!;
+
+  const showOverlay = (mode: 'paused' | 'ended') => {
+    overlayTitle.textContent = mode === 'paused' ? '暫停中' : '完成!';
+    // 結束無從繼續,只能重新開始 → 藏繼續鈕與其提示。
+    resumeBtn.style.display = mode === 'paused' ? '' : 'none';
+    overlayHint.style.display = mode === 'paused' ? '' : 'none';
+    overlay.style.display = 'grid';
+  };
+  const hideOverlay = () => {
+    overlay.style.display = 'none';
+  };
+
+  // 回饋/音符/combo 全重置到未開始狀態(重新開始與 issue 09 重玩共用)。
+  const resetVisualState = () => {
+    flashStart = -Infinity;
+    flashEl.style.opacity = '0';
+    lastTier = comboTier(0);
+    comboEl.textContent = '';
+    comboEl.classList.remove('bt-pop');
+    for (const mesh of cells.values()) {
+      mesh.userData.flashStart = -Infinity;
+      (mesh.material as THREE.MeshBasicMaterial).opacity = 0;
+    }
+    for (const v of visuals) setVisible(v, false); // loop 首幀會重新定位
+    showProgress();
+  };
+
+  // 從 0 完整重來:重建 Judger、清狀態、play(0)、啟動迴圈。開始鈕與重新開始鈕共用。
+  const beginFromZero = async () => {
+    hideOverlay();
+    judger = new Judger(chart, judgeConfig);
+    resetVisualState();
+    await player.play(0);
+    state = 'playing';
+    startLoop();
+  };
+  const pauseRun = () => {
+    if (state !== 'playing') return;
+    player.pause(); // 凍結 positionSec → 暫停期間不流逝、迴圈停 → 無假 Miss
+    stopLoop();
+    state = 'paused';
+    showOverlay('paused');
+  };
+  const resumeRun = () => {
+    if (state !== 'paused') return;
+    hideOverlay();
+    state = 'playing';
+    void player.play(); // 從凍結位置續播
+    startLoop();
+  };
+
   startBtn.addEventListener('click', () => {
     void (async () => {
       startBtn.style.display = 'none';
       barPinned = false; // 開始後改為滑鼠靠近才顯
       setBarShown(false);
-      judger = new Judger(chart, judgeConfig); // 每次開始重建 → 支援重玩
-      if (player.positionSec >= player.duration) player.stop();
-      await player.play(0);
-      if (!raf) raf = requestAnimationFrame(loop);
+      await beginFromZero();
     })();
   });
+  resumeBtn.addEventListener('click', resumeRun);
+  restartBtn.addEventListener('click', () => void beginFromZero());
+
+  // 歌自然播完:收尾最後一次判定,停迴圈,顯示結束覆蓋層(可重新開始)。
+  player.onEnded = () => {
+    if (judger) {
+      judger.expiry(player.duration);
+      showCombo();
+    }
+    positionNotes(player.duration);
+    renderer.render(scene, camera);
+    stopLoop();
+    state = 'ended';
+    showOverlay('ended');
+  };
+
+  // Space / Escape 皆切換 暫停⇄繼續(非遊戲鍵;preventDefault 防捲動)。僅遊玩/暫停中作用。
+  const onControlKey = (e: KeyboardEvent) => {
+    if (e.repeat || (e.code !== 'Space' && e.code !== 'Escape')) return;
+    if (state !== 'playing' && state !== 'paused') return;
+    e.preventDefault();
+    if (state === 'playing') pauseRun();
+    else resumeRun();
+  };
+  window.addEventListener('keydown', onControlKey);
+
+  // 分頁切到背景 → 自動暫停(背景凍結 rAF 但音訊續播,回來時會一次判一堆 Miss、combo 整斷)。
+  const onVisibility = () => {
+    if (document.hidden) pauseRun();
+  };
+  document.addEventListener('visibilitychange', onVisibility);
 
   const flightInput = container.querySelector<HTMLInputElement>('.bt-flight')!;
   const flightVal = container.querySelector<HTMLSpanElement>('.bt-flight-val')!;
@@ -402,6 +496,9 @@ export function startHighway(
     cancelAnimationFrame(raf);
     window.removeEventListener('resize', resize);
     window.removeEventListener('keydown', onKeyDown);
+    window.removeEventListener('keydown', onControlKey);
+    document.removeEventListener('visibilitychange', onVisibility);
+    player.onEnded = null; // 卸載前解除,避免切到預覽後仍觸發本視圖的結束處理
     container.removeEventListener('pointermove', onPointerMove);
     boxGeo.dispose();
     segGeo.dispose();
@@ -511,6 +608,26 @@ function buildControls(settings: Settings): HTMLElement {
       <span class="bt-volume-val" style="width:40px;">${Math.round(settings.tickVolume * 100)}%</span>
     </label>`;
   return bar;
+}
+
+// ── 暫停 / 結束覆蓋層(issue 13):半透明暗幕 + 標題 + 繼續 / 重新開始。預設隱藏,由 startHighway 控制。 ──
+function buildPauseOverlay(): HTMLElement {
+  const overlay = document.createElement('div');
+  overlay.className = 'bt-overlay';
+  overlay.style.cssText =
+    'position:absolute;inset:0;display:none;place-items:center;z-index:5;' +
+    'background:#0b0d12cc;font-family:system-ui,sans-serif;color:#eef1f7;';
+  const btn = 'font-size:15px;padding:9px 22px;cursor:pointer;border:0;border-radius:8px;';
+  overlay.innerHTML = `
+    <div style="text-align:center;">
+      <div class="bt-overlay-title" style="font-size:34px;letter-spacing:2px;margin-bottom:6px;">暫停中</div>
+      <div class="bt-overlay-hint" style="font-size:13px;color:#8b93a7;margin-bottom:26px;">Space / Esc 繼續</div>
+      <div style="display:flex;gap:14px;justify-content:center;">
+        <button type="button" class="bt-resume" style="${btn}background:#2e86d6;color:#fff;">繼續</button>
+        <button type="button" class="bt-restart" style="${btn}background:#2b3040;color:#cdd3df;">重新開始</button>
+      </div>
+    </div>`;
+  return overlay;
 }
 
 // ── 頂部進度條 + 時間、combo(右上)、判定閃字(中央) ──
