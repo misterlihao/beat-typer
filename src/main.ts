@@ -6,7 +6,7 @@ import { buildDifficultyMenu, noteStats } from './compile/difficultyMenu.ts';
 import { parseInfo } from './compile/parseInfo.ts';
 import { startHighway, type ResultsBest } from './highway/highway.ts';
 import type { JudgeSummary } from './judge/types.ts';
-import { adjustedAccuracy, recordRun } from './scores/scores.ts';
+import { adjustedAccuracy, loadScores, recordRun, songKey } from './scores/scores.ts';
 import { BsrChartSource, parseBsrCode } from './loader/bsr.ts';
 import { BuiltinChartSource } from './loader/builtin.ts';
 import { ZipChartSource } from './loader/zip.ts';
@@ -163,6 +163,8 @@ async function showDifficultyScreen(
     });
   };
 
+  // 各難度的過去最佳成績(issue 19 切片):以難度檔身分查成績庫,顯示調整後準確率 + 達成鍵群。
+  const scores = loadScores();
   const showGroupHeader = groups.length > 1;
   for (const g of groups) {
     if (showGroupHeader) {
@@ -178,12 +180,25 @@ async function showDifficultyScreen(
         'display:flex;justify-content:space-between;align-items:center;width:100%;margin:0 0 12px;' +
         'font-size:19px;padding:22px 24px;cursor:pointer;border:1px solid #4a5163;border-radius:12px;' +
         'background:#161a24;color:#cdd3df';
+      // 左側:難度名 + 過去最佳(有紀錄才顯示,調整後準確率 + 鍵群)。
+      const left = document.createElement('div');
+      left.style.cssText = 'display:flex;flex-direction:column;align-items:flex-start;gap:4px;';
       const name = document.createElement('span');
       name.textContent = d.difficulty;
+      left.appendChild(name);
+      const diffText = cache.get(d.filename);
+      const rec = diffText ? scores.records[songKey(diffText)] : undefined;
+      if (rec) {
+        const best = document.createElement('span');
+        best.style.cssText = 'font-size:13px;color:#78c2b5';
+        const pct = (adjustedAccuracy(rec.bestRawAccuracy, rec.bestKeyGroup) * 100).toFixed(1);
+        best.textContent = `最佳 ${pct}%(${KEY_GROUP_LABELS[rec.bestKeyGroup]})`;
+        left.appendChild(best);
+      }
       const nps = document.createElement('span');
       nps.textContent = npsLabel.get(d.filename) ?? '';
       nps.style.cssText = 'color:#8b93a7;font-size:14px';
-      btn.append(name, nps);
+      btn.append(left, nps);
       btn.addEventListener('click', () => pick(d));
       groupsBox.appendChild(btn);
     }
