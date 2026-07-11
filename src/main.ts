@@ -180,25 +180,28 @@ async function showDifficultyScreen(
         'display:flex;justify-content:space-between;align-items:center;width:100%;margin:0 0 12px;' +
         'font-size:19px;padding:22px 24px;cursor:pointer;border:1px solid #4a5163;border-radius:12px;' +
         'background:#161a24;color:#cdd3df';
-      // 左側:難度名 + 過去最佳(有紀錄才顯示,調整後準確率 + 鍵群)。
+      // 左側:難度名 + NPS(譜面資訊);右側:過去最佳(有紀錄才顯示,調整後準確率 + 鍵群)。
       const left = document.createElement('div');
       left.style.cssText = 'display:flex;flex-direction:column;align-items:flex-start;gap:4px;';
       const name = document.createElement('span');
       name.textContent = d.difficulty;
       left.appendChild(name);
+      const npsText = npsLabel.get(d.filename) ?? '';
+      if (npsText) {
+        const nps = document.createElement('span');
+        nps.textContent = npsText;
+        nps.style.cssText = 'color:#8b93a7;font-size:14px';
+        left.appendChild(nps);
+      }
       const diffText = cache.get(d.filename);
       const rec = diffText ? scores.records[songKey(diffText)] : undefined;
+      const best = document.createElement('span');
       if (rec) {
-        const best = document.createElement('span');
-        best.style.cssText = 'font-size:13px;color:#78c2b5';
+        best.style.cssText = 'font-size:14px;color:#78c2b5';
         const pct = (adjustedAccuracy(rec.bestRawAccuracy, rec.bestKeyGroup) * 100).toFixed(1);
         best.textContent = `最佳 ${pct}%(${KEY_GROUP_LABELS[rec.bestKeyGroup]})`;
-        left.appendChild(best);
       }
-      const nps = document.createElement('span');
-      nps.textContent = npsLabel.get(d.filename) ?? '';
-      nps.style.cssText = 'color:#8b93a7;font-size:14px';
-      btn.append(left, nps);
+      btn.append(left, best);
       btn.addEventListener('click', () => pick(d));
       groupsBox.appendChild(btn);
     }
