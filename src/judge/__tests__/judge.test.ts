@@ -114,6 +114,28 @@ describe('judge — 準確率與評級', () => {
   });
 });
 
+describe('judge — 評級門檻邊界(S/A/B/C 下界)', () => {
+  // n 顆同鍵音符(間隔 1s,窗不重疊),前 k 顆準時 Perfect、其餘不敲 → Miss;accuracy = k/n。
+  const chart = (n: number): Note[] => Array.from({ length: n }, (_, i) => pnote(i + 1, 'KeyA'));
+  const perfectFirst = (k: number): InputEvent[] => Array.from({ length: k }, (_, i) => ev(i + 1, 'KeyA'));
+  const at = (n: number, k: number) => judge(chart(n), perfectFirst(k), cfg).summary;
+
+  it('0.95 → S(S 下界)', () => {
+    expect(at(20, 19).accuracy).toBeCloseTo(0.95, 10);
+    expect(at(20, 19).grade).toBe('S');
+  });
+  it('0.85 → A、0.80 → B(A 下界)', () => {
+    expect(at(20, 17).accuracy).toBeCloseTo(0.85, 10);
+    expect(at(20, 17).grade).toBe('A');
+    expect(at(20, 16).grade).toBe('B'); // 0.80
+  });
+  it('0.70 → B、0.65 → C(B 下界)', () => {
+    expect(at(20, 14).accuracy).toBeCloseTo(0.7, 10);
+    expect(at(20, 14).grade).toBe('B');
+    expect(at(20, 13).grade).toBe('C'); // 0.65
+  });
+});
+
 describe('judge — nowSec 部分觀察(即時狀態)', () => {
   it('nowSec 未到期的音符維持待判、不算 Miss', () => {
     const chart = [pnote(1, 'KeyA'), pnote(3, 'KeyA')];

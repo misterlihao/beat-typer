@@ -7,7 +7,7 @@ import type { AudioPlayer } from '../audio/player.ts';
 import { glyphOf } from '../compile/mapping.ts';
 import type { Hand, TypingChart } from '../compile/types.ts';
 import { Judger } from '../judge/judge.ts';
-import { DEFAULT_JUDGE_CONFIG, type PressOutcome } from '../judge/types.ts';
+import { DEFAULT_JUDGE_CONFIG, type Grade, type PressOutcome } from '../judge/types.ts';
 import { loadSettings, patchSettings, SETTINGS_SPEC, type Settings } from '../settings/settings.ts';
 
 export interface HighwayDeps {
@@ -17,6 +17,8 @@ export interface HighwayDeps {
   readonly difficultyLabel: string;
   /** 封面圖 URL;缺漏時資訊卡改用佔位圖。 */
   readonly coverUrl?: string;
+  /** 導覽回呼(非顯示用):結算面板「回選歌」時呼叫,由編排層切回著陸頁(issue 09)。 */
+  readonly onExit?: () => void;
 }
 
 // ── 鍵盤版面:實體按鍵碼 → (欄 0..9 由左到右, 列 0下/1家/2上)。唯一的幾何真實來源。 ──
@@ -72,6 +74,17 @@ const comboTier = (combo: number): number => COMBO_TIERS.findIndex((t) => combo 
 const FLASH_LABEL = { perfect: 'PERFECT', good: 'GOOD', miss: 'MISS' } as const;
 const FLASH_COLOR = { perfect: '#ffd23f', good: '#5ad17a', miss: '#ff5e5e' } as const;
 const FLASH_MS = 450;
+
+// 評級色:結算大字與即時 HUD 共用同一組(單一真相)。金/綠/青/橘/紅 = S/A/B/C/D。
+const GRADE_COLOR: Record<Grade, string> = {
+  S: '#ffd23f',
+  A: '#5ad17a',
+  B: '#5ad1c4',
+  C: '#f0a54a',
+  D: '#ff5e5e',
+};
+// 前 8 顆已判定音符前不顯即時評級——早段樣本太少,單顆就能翻級,會 S↔D 狂跳(見 issue 09 grill)。
+const GRADE_MIN_JUDGED = 8;
 
 // 格子發光:按鍵反饋(任何按鍵亮其格)+ 打擊反饋(命中依判定上色)。
 const CELL_MS = 260;
@@ -245,6 +258,24 @@ export function startHighway(
     lastTier = tier;
   };
 
+  // 即時評級(不顯得分):顯示「若現在結束的評級」。前 GRADE_MIN_JUDGED 顆判定前不顯(消早段抖動)。
+  // 事件驅動——僅在判定集合變動處呼叫(命中/敲錯/自動 Miss/長按鎖定或破),不每幀重算 summary()。
+  const gradeEl = container.querySelector<HTMLDivElement>('.bt-grade')!;
+  const showGrade = () => {
+    if (!judger) {
+      gradeEl.textContent = '';
+      return;
+    }
+    const s = judger.summary();
+    const judged = s.counts.perfect + s.counts.good + s.counts.miss;
+    if (judged < GRADE_MIN_JUDGED) {
+      gradeEl.textContent = '';
+      return;
+    }
+    gradeEl.textContent = s.grade;
+    gradeEl.style.color = GRADE_COLOR[s.grade];
+  };
+
   // mm:ss 時間格式(進度條數字)。
   const fmtTime = (s: number): string => {
     const t = Math.max(0, Math.floor(s));
@@ -321,6 +352,7 @@ export function startHighway(
       if (missed.length > 0) {
         flash('miss');
         for (const i of missed) activateCell(chart[i]!.key, CELL_COLOR.miss, CELL_PEAK.miss);
+        showGrade(); // 自動 Miss 改變判定集合 → 更新即時評級
       }
       showCombo();
     }
@@ -346,6 +378,7 @@ export function startHighway(
           player.playTick('high'); // 尾部完成音(對齊鎖定時機,不綁物理 keyup)
         }
         showCombo();
+        showGrade(); // 長按鎖定/破改變判定集合 → 更新即時評級
       }
     }
 
@@ -383,6 +416,7 @@ export function startHighway(
     activateCell(e.code, CELL_COLOR[kind], CELL_PEAK[kind]);
     if (outcome.kind !== 'extra') flash(outcome.kind);
     showCombo();
+    showGrade(); // 命中/敲錯改變判定集合 → 更新即時評級(extra 無變化,重算無妨)
     // 長按頭部命中 → 進「持續中」:持續發光(loop 維持)+ 長條提亮,直到鎖定/破。
     if (
       (outcome.kind === 'perfect' || outcome.kind === 'good') &&
@@ -399,6 +433,7 @@ export function startHighway(
     if (!judger || !player.isPlaying) return;
     if (!(e.code in KEY_LAYOUT)) return;
     judger.release({ t: player.positionSec, key: e.code, up: true });
+    showGrade(); // 提早放開破壞長按會改判定集合 → 更新即時評級
   };
   window.addEventListener('keyup', onKeyUp);
 
@@ -419,19 +454,50 @@ export function startHighway(
   };
   container.addEventListener('pointermove', onPointerMove);
 
-  // ── 控制:開始 / 暫停 / 繼續 / 重新開始(issue 13) ──
+  // ── 控制:開始 / 暫停 / 繼續 / 重新開始 / 回選歌(issue 13 + 09) ──
   const startBtn = container.querySelector<HTMLButtonElement>('.bt-start')!;
   const overlay = container.querySelector<HTMLDivElement>('.bt-overlay')!;
   const overlayTitle = container.querySelector<HTMLDivElement>('.bt-overlay-title')!;
   const resumeBtn = container.querySelector<HTMLButtonElement>('.bt-resume')!;
   const restartBtn = container.querySelector<HTMLButtonElement>('.bt-restart')!;
+  const exitBtn = container.querySelector<HTMLButtonElement>('.bt-exit')!;
   const overlayHint = container.querySelector<HTMLDivElement>('.bt-overlay-hint')!;
+  // 結算面板(issue 09):結束時由 judger.summary() 填、暫停時隱藏。
+  const resultsPanel = container.querySelector<HTMLDivElement>('.bt-results')!;
+  const gradeHero = container.querySelector<HTMLDivElement>('.bt-grade-hero')!;
+  const accEl = container.querySelector<HTMLDivElement>('.bt-acc')!;
+  const fcEl = container.querySelector<HTMLDivElement>('.bt-fc')!;
+  const countsEl = container.querySelector<HTMLDivElement>('.bt-counts')!;
+  const maxComboEl = container.querySelector<HTMLDivElement>('.bt-maxcombo')!;
+  const extrasEl = container.querySelector<HTMLDivElement>('.bt-extras')!;
+
+  // 用 judger.summary() 填結算面板(薄呈現,不重算);評級大字進場 pop。
+  const fillResults = () => {
+    if (!judger) return;
+    const s = judger.summary();
+    gradeHero.textContent = s.grade;
+    gradeHero.style.color = GRADE_COLOR[s.grade];
+    accEl.textContent = `${(s.accuracy * 100).toFixed(1)}%`;
+    fcEl.style.display = s.fullCombo ? '' : 'none';
+    countsEl.innerHTML =
+      `<span style="color:${FLASH_COLOR.perfect}">Perfect ${s.counts.perfect}</span> · ` +
+      `<span style="color:${FLASH_COLOR.good}">Good ${s.counts.good}</span> · ` +
+      `<span style="color:${FLASH_COLOR.miss}">Miss ${s.counts.miss}</span>`;
+    maxComboEl.textContent = `最大 combo ${s.maxCombo}`;
+    extrasEl.textContent = s.extras > 0 ? `多餘按鍵 ${s.extras}` : '';
+    // 重播評級大字放大動畫(移除→reflow→加回)。
+    gradeHero.classList.remove('bt-pop');
+    void gradeHero.offsetWidth;
+    gradeHero.classList.add('bt-pop');
+  };
 
   const showOverlay = (mode: 'paused' | 'ended') => {
     overlayTitle.textContent = mode === 'paused' ? '暫停中' : '完成!';
-    // 結束無從繼續,只能重新開始 → 藏繼續鈕與其提示。
+    // 結束無從繼續,只能重玩/回選歌 → 藏繼續鈕與其提示;並填結算面板。
     resumeBtn.style.display = mode === 'paused' ? '' : 'none';
     overlayHint.style.display = mode === 'paused' ? '' : 'none';
+    if (mode === 'ended') fillResults();
+    resultsPanel.style.display = mode === 'ended' ? '' : 'none';
     overlay.style.display = 'grid';
   };
   const hideOverlay = () => {
@@ -445,6 +511,7 @@ export function startHighway(
     lastTier = comboTier(0);
     comboEl.textContent = '';
     comboEl.classList.remove('bt-pop');
+    gradeEl.textContent = ''; // 重玩歸零:評級重新累積到門檻才顯
     for (const mesh of cells.values()) {
       mesh.userData.flashStart = -Infinity;
       (mesh.material as THREE.MeshBasicMaterial).opacity = 0;
@@ -493,6 +560,8 @@ export function startHighway(
   });
   resumeBtn.addEventListener('click', resumeRun);
   restartBtn.addEventListener('click', () => void beginFromZero());
+  // 回選歌:交給編排層切回著陸頁(deps.onExit 內含 highway cleanup → 停音訊/釋放 GPU)。
+  exitBtn.addEventListener('click', () => deps.onExit?.());
 
   // 歌自然播完:收尾最後一次判定,停迴圈,顯示結束覆蓋層(可重新開始)。
   player.onEnded = () => {
@@ -668,7 +737,8 @@ function buildControls(settings: Settings): HTMLElement {
   return bar;
 }
 
-// ── 暫停 / 結束覆蓋層(issue 13):半透明暗幕 + 標題 + 繼續 / 重新開始。預設隱藏,由 startHighway 控制。 ──
+// ── 暫停 / 結束覆蓋層(issue 13 + 09):半透明暗幕 + 標題 + 結算面板 + 繼續 / 重新開始 / 回選歌。 ──
+// 結算面板(.bt-results)只在結束(ended)顯示、暫停時隱藏;數據由 startHighway 從 judger.summary() 填。
 function buildPauseOverlay(): HTMLElement {
   const overlay = document.createElement('div');
   overlay.className = 'bt-overlay';
@@ -679,10 +749,21 @@ function buildPauseOverlay(): HTMLElement {
   overlay.innerHTML = `
     <div style="text-align:center;">
       <div class="bt-overlay-title" style="font-size:34px;letter-spacing:2px;margin-bottom:6px;">暫停中</div>
+      <div class="bt-results" style="display:none;margin:2px 0 22px;">
+        <div class="bt-grade-hero" style="font-size:96px;font-weight:900;line-height:1;
+          text-shadow:0 4px 18px #000;transform-origin:50% 50%;"></div>
+        <div class="bt-acc" style="font-size:38px;font-weight:800;color:#eef1f7;margin-top:2px;"></div>
+        <div class="bt-fc" style="display:none;font-size:15px;font-weight:800;letter-spacing:2px;
+          color:#ff6ec7;margin-top:8px;">⚡ FULL COMBO</div>
+        <div class="bt-counts" style="font-size:17px;font-weight:700;margin-top:14px;"></div>
+        <div class="bt-maxcombo" style="font-size:14px;color:#8b93a7;margin-top:8px;"></div>
+        <div class="bt-extras" style="font-size:12px;color:#5b6274;margin-top:4px;"></div>
+      </div>
       <div class="bt-overlay-hint" style="font-size:13px;color:#8b93a7;margin-bottom:26px;">Space / Esc 繼續</div>
       <div style="display:flex;gap:14px;justify-content:center;">
         <button type="button" class="bt-resume" style="${btn}background:#2e86d6;color:#fff;">繼續</button>
         <button type="button" class="bt-restart" style="${btn}background:#2b3040;color:#cdd3df;">重新開始</button>
+        <button type="button" class="bt-exit" style="${btn}background:#2b3040;color:#cdd3df;">回選歌</button>
       </div>
     </div>`;
   return overlay;
@@ -701,9 +782,12 @@ function buildFeedback(): HTMLElement {
     </div>
     <div class="bt-time" style="position:absolute;top:14px;left:0;right:0;text-align:center;
       font-size:16px;font-variant-numeric:tabular-nums;color:#8b93a7;text-shadow:0 1px 3px #000;"></div>
-    <div class="bt-combo" style="position:absolute;right:20px;top:18px;
-      font-size:58px;font-weight:800;color:#eef1f7;opacity:0.95;text-shadow:0 2px 8px #000;
-      transform-origin:100% 50%;line-height:1;"></div>
+    <div class="bt-grade" style="position:absolute;right:20px;top:16px;
+      font-size:60px;font-weight:800;opacity:0.95;text-shadow:0 2px 8px #000;
+      text-align:right;line-height:1;"></div>
+    <div class="bt-combo" style="position:absolute;right:20px;top:90px;
+      font-size:40px;font-weight:800;color:#eef1f7;opacity:0.95;text-shadow:0 2px 8px #000;
+      transform-origin:100% 50%;line-height:1;text-align:right;"></div>
     <div class="bt-flash" style="position:absolute;top:12%;left:0;right:0;text-align:center;
       font-size:44px;font-weight:900;opacity:0;text-shadow:0 2px 10px #000;"></div>`;
   return wrap;
@@ -740,7 +824,9 @@ function ensureHudStyle(): void {
   style.id = 'bt-hud-style';
   style.textContent = `
     @keyframes bt-combo-pop { 0% { transform: scale(1.45); } 100% { transform: scale(1); } }
-    .bt-combo.bt-pop { animation: bt-combo-pop 260ms cubic-bezier(.2,.9,.3,1); }`;
+    .bt-combo.bt-pop { animation: bt-combo-pop 260ms cubic-bezier(.2,.9,.3,1); }
+    @keyframes bt-grade-pop { 0% { transform: scale(1.8); opacity: 0; } 55% { opacity: 1; } 100% { transform: scale(1); } }
+    .bt-grade-hero.bt-pop { animation: bt-grade-pop 420ms cubic-bezier(.2,.9,.3,1); }`;
   document.head.appendChild(style);
 }
 

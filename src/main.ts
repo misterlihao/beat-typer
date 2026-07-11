@@ -240,6 +240,7 @@ async function startSong(
     coverUrl: currentCoverUrl,
     bpm: info.bpm,
     songTimeOffset: info.songTimeOffset,
+    onExit: () => showLanding(root), // 結算面板「回選歌」→ 回著陸頁(issue 09)
   });
 }
 
@@ -250,6 +251,8 @@ interface ViewDeps {
   readonly coverUrl?: string;
   readonly bpm: number;
   readonly songTimeOffset: number;
+  /** 結算面板「回選歌」的導覽目標(issue 09);由 startSong 接回著陸頁。 */
+  readonly onExit?: () => void;
 }
 
 /** 掛載高速公路 / 表格預覽,附一個切換鈕。共用同一個 player。 */
@@ -279,7 +282,13 @@ function mountViews(root: HTMLElement, chart: TypingChart, player: AudioPlayer, 
       cleanup = startHighway(
         viewRoot,
         chart,
-        { songName: deps.songName, difficultyLabel: deps.difficultyLabel, coverUrl: deps.coverUrl },
+        {
+          songName: deps.songName,
+          difficultyLabel: deps.difficultyLabel,
+          coverUrl: deps.coverUrl,
+          // 回選歌:先跑本視圖 cleanup(停音訊/卸事件/釋放 GPU),再由 startSong 切回著陸頁。
+          onExit: deps.onExit ? () => { cleanup?.(); deps.onExit!(); } : undefined,
+        },
         player,
       );
     } else {
