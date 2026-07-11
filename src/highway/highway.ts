@@ -461,7 +461,33 @@ export function startHighway(
     bar.style.pointerEvents = shown ? 'auto' : 'none';
   };
   setBarShown(true);
+
+  // ── 倒數 / 遊玩中自動隱藏滑鼠:鍵盤驅動,滑鼠無事可做。移動即喚回,靜止 ~1.5s 再藏並收起控制列;
+  // 暫停 / 結算一律顯示,才能點按鈕、拉滑桿。──
+  const CURSOR_IDLE_MS = 1500;
+  let cursorIdleTimer = 0;
+  const cursorAutoHides = () => state === 'countdown' || state === 'playing';
+  const setCursorHidden = (hidden: boolean) => {
+    container.style.cursor = hidden ? 'none' : '';
+  };
+  const revealCursor = () => {
+    clearTimeout(cursorIdleTimer);
+    setCursorHidden(false);
+  };
+  const armCursorIdle = () => {
+    clearTimeout(cursorIdleTimer);
+    cursorIdleTimer = window.setTimeout(() => {
+      if (!cursorAutoHides()) return;
+      setCursorHidden(true);
+      if (!barPinned) setBarShown(false);
+    }, CURSOR_IDLE_MS);
+  };
+
   const onPointerMove = (e: PointerEvent) => {
+    if (cursorAutoHides()) {
+      setCursorHidden(false); // 移動即喚回,重新計時
+      armCursorIdle();
+    }
     if (barPinned) return;
     const rect = container.getBoundingClientRect();
     setBarShown(e.clientY >= rect.bottom - REVEAL_PX);
@@ -553,11 +579,15 @@ export function startHighway(
     state = 'playing';
     await player.play(0);
     startLoop();
+    setCursorHidden(true); // 開跑即藏游標(移動才喚回)
+    clearTimeout(cursorIdleTimer);
   };
   const resumeLaunch = () => {
     state = 'playing';
     void player.play(); // 從凍結位置續播
     startLoop();
+    setCursorHidden(true);
+    clearTimeout(cursorIdleTimer);
   };
   let pendingLaunch: () => void = freshLaunch;
 
@@ -582,6 +612,8 @@ export function startHighway(
     barPinned = false; // 與遊玩一致:控制列改為滑鼠靠近才顯
     setBarShown(false);
     countdownEl.style.display = 'grid';
+    setCursorHidden(true); // 倒數即藏游標(移動才喚回),不等真的開始
+    clearTimeout(cursorIdleTimer);
     void player.resume(); // 解鎖 AudioContext(黏性啟用內):tick 才出得了聲、之後續播不卡
     setCountNum(3);
     player.playTick('high');
@@ -598,6 +630,7 @@ export function startHighway(
     clearCountdown();
     countdownEl.style.display = 'none';
     state = 'paused';
+    revealCursor();
     showOverlay('paused');
     barPinned = true;
     setBarShown(true);
@@ -617,6 +650,7 @@ export function startHighway(
     player.pause(); // 凍結 positionSec → 暫停期間不流逝、迴圈停 → 無假 Miss
     stopLoop();
     state = 'paused';
+    revealCursor();
     pendingLaunch = resumeLaunch; // 繼續 = 從凍結位置續播
     showOverlay('paused');
     barPinned = true; // 暫停中固定顯示控制列,讓玩家能就地調整滑桿(疊在覆蓋層之上)
@@ -643,6 +677,7 @@ export function startHighway(
     renderer.render(scene, camera);
     stopLoop();
     state = 'ended';
+    revealCursor();
     // 寫入成績庫(編排層負責身分/儲存)並取回最佳供結算顯示;無 judger/onComplete 則不顯示。
     lastBest = judger ? (deps.onComplete?.(judger.summary()) ?? null) : null;
     showOverlay('ended');
@@ -700,6 +735,7 @@ export function startHighway(
   return () => {
     cancelAnimationFrame(raf);
     clearCountdown(); // 卸載時清掉未觸發的倒數計時器,避免對已卸載的 DOM/player 動作
+    clearTimeout(cursorIdleTimer);
     window.removeEventListener('resize', resize);
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
