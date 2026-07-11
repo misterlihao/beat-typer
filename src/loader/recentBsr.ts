@@ -58,3 +58,14 @@ export function recordRecentBsr(code: string, songName: string): RecentBsr[] {
   }
   return next;
 }
+
+/** 從最近清單移除指定 code(玩家嫌某張譜不好玩,手動刪)。寫入失敗靜默略過。回傳更新後清單。 */
+export function removeRecentBsr(code: string): RecentBsr[] {
+  const next = loadRecentBsr().filter((r) => r.code !== code);
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // 寫入失敗不該影響載入
+  }
+  return next;
+}

@@ -8,7 +8,7 @@ import { startHighway, type ResultsBest } from './highway/highway.ts';
 import type { JudgeSummary } from './judge/types.ts';
 import { adjustedAccuracy, loadScores, recordRun, songKey } from './scores/scores.ts';
 import { BsrChartSource, parseBsrCode } from './loader/bsr.ts';
-import { loadRecentBsr, recordRecentBsr } from './loader/recentBsr.ts';
+import { loadRecentBsr, recordRecentBsr, removeRecentBsr } from './loader/recentBsr.ts';
 import { BuiltinChartSource } from './loader/builtin.ts';
 import { ZipChartSource } from './loader/zip.ts';
 import type { ChartSource, SongHandle } from './loader/types.ts';
@@ -433,20 +433,26 @@ function showLanding(app: HTMLElement, errorMessage?: string): void {
   });
 
   // 最近遊玩的 BSR(issue 19 切片):BSR 輸入下方列出,點擊 = 重新下載重玩(同一套流程與錯誤處理)。
-  // 顯示區約 6 列高、超出捲軸;清單為空則整區不顯示。歌名 / 代號用 textContent,不信任外來字串。
+  // 每列附刪除鈕(嫌某張不好玩可手動移除);顯示區約 6 列高、超出捲軸;清單為空則整區不顯示。
+  // 刪除後就地重繪(可能歸零 → 整區消失)。歌名 / 代號用 textContent,不信任外來字串。
   const recentBox = app.querySelector<HTMLElement>('#bt-recent')!;
-  const recent = loadRecentBsr();
-  if (recent.length > 0) {
+  const renderRecent = () => {
+    recentBox.replaceChildren();
+    const recent = loadRecentBsr();
+    if (recent.length === 0) return;
     const label = document.createElement('div');
     label.textContent = '最近';
     label.style.cssText = 'font-size:12px;color:#8b93a7;margin:20px 0 8px;text-align:left';
     const list = document.createElement('div');
     list.style.cssText = 'max-height:290px;overflow-y:auto;display:flex;flex-direction:column;gap:8px';
     for (const r of recent) {
+      // 一列 = 可點的主鈕(下載重玩)+ 獨立刪除鈕(相鄰,非巢狀,避免點刪誤觸下載)。
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:stretch;gap:8px';
       const b = document.createElement('button');
       b.type = 'button';
       b.style.cssText =
-        'display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;text-align:left;' +
+        'flex:1 1 auto;min-width:0;display:flex;justify-content:space-between;align-items:center;gap:12px;text-align:left;' +
         'font-size:14px;padding:11px 14px;cursor:pointer;border:1px solid #4a5163;border-radius:8px;background:#161a24;color:#cdd3df';
       const name = document.createElement('span');
       name.textContent = r.songName;
@@ -456,10 +462,24 @@ function showLanding(app: HTMLElement, errorMessage?: string): void {
       code.style.cssText = 'flex:0 0 auto;font-size:12px;color:#8b93a7;font-variant-numeric:tabular-nums';
       b.append(name, code);
       b.addEventListener('click', () => run(new BsrChartSource(r.code), '下載中…'));
-      list.appendChild(b);
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.textContent = '✕';
+      del.title = `從最近移除 ${r.code}`;
+      del.setAttribute('aria-label', `從最近移除 ${r.songName}`);
+      del.style.cssText =
+        'flex:0 0 auto;width:42px;cursor:pointer;border:1px solid #4a5163;border-radius:8px;' +
+        'background:#161a24;color:#8b93a7;font-size:14px';
+      del.addEventListener('click', () => {
+        removeRecentBsr(r.code);
+        renderRecent();
+      });
+      row.append(b, del);
+      list.appendChild(row);
     }
     recentBox.append(label, list);
-  }
+  };
+  renderRecent();
 
   // 滑鼠點擊由 <label for> 原生開啟選檔視窗(不靠 programmatic click,跨瀏覽器可靠);
   // 鍵盤(label 不會原生回應 Enter/Space)才走 JS 觸發。
