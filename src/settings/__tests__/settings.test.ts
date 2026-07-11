@@ -1,12 +1,13 @@
 // 設定持久化的純函式驗收(issue 12):coerceSettings 的回退/夾範圍/原樣。
 // localStorage 讀寫為薄 I/O,不 mock、不測(見 docs/issues/12)。
 import { describe, expect, it } from 'vitest';
-import { coerceSettings, SETTINGS_SPEC, type Settings } from '../settings.ts';
+import { coerceSettings, KEY_GROUP_DEFAULT, SETTINGS_SPEC, type Settings } from '../settings.ts';
 
 const DEFAULTS: Settings = {
   flightTime: SETTINGS_SPEC.flightTime.default,
   offsetSec: SETTINGS_SPEC.offsetSec.default,
   tickVolume: SETTINGS_SPEC.tickVolume.default,
+  keyGroup: KEY_GROUP_DEFAULT,
 };
 
 describe('coerceSettings — 回退預設', () => {
@@ -37,6 +38,7 @@ describe('coerceSettings — 夾範圍', () => {
       flightTime: SETTINGS_SPEC.flightTime.max,
       offsetSec: SETTINGS_SPEC.offsetSec.max,
       tickVolume: SETTINGS_SPEC.tickVolume.max,
+      keyGroup: KEY_GROUP_DEFAULT,
     });
   });
 
@@ -45,6 +47,7 @@ describe('coerceSettings — 夾範圍', () => {
       flightTime: SETTINGS_SPEC.flightTime.min,
       offsetSec: SETTINGS_SPEC.offsetSec.min,
       tickVolume: SETTINGS_SPEC.tickVolume.min,
+      keyGroup: KEY_GROUP_DEFAULT,
     });
   });
 
@@ -53,6 +56,7 @@ describe('coerceSettings — 夾範圍', () => {
       flightTime: SETTINGS_SPEC.flightTime.max,
       offsetSec: SETTINGS_SPEC.offsetSec.min,
       tickVolume: SETTINGS_SPEC.tickVolume.min,
+      keyGroup: 'all',
     };
     expect(coerceSettings(edge)).toEqual(edge);
   });
@@ -60,11 +64,23 @@ describe('coerceSettings — 夾範圍', () => {
 
 describe('coerceSettings — 合法值原樣', () => {
   it('區間內的值不動', () => {
-    const valid: Settings = { flightTime: 1.5, offsetSec: -0.1, tickVolume: 0.6 };
+    const valid: Settings = { flightTime: 1.5, offsetSec: -0.1, tickVolume: 0.6, keyGroup: 'home' };
     expect(coerceSettings(valid)).toEqual(valid);
   });
 
   it('忽略多餘欄位', () => {
     expect(coerceSettings({ ...DEFAULTS, bogus: 123 })).toEqual(DEFAULTS);
+  });
+});
+
+describe('coerceSettings — 鍵群列舉(issue 15)', () => {
+  it('合法鍵群原樣保留', () => {
+    expect(coerceSettings({ ...DEFAULTS, keyGroup: 'index-middle' }).keyGroup).toBe('index-middle');
+  });
+
+  it('缺 / 非法 / 型別錯的鍵群 → 回退 all', () => {
+    expect(coerceSettings({}).keyGroup).toBe('all');
+    expect(coerceSettings({ keyGroup: 'bogus' }).keyGroup).toBe('all');
+    expect(coerceSettings({ keyGroup: 42 }).keyGroup).toBe('all');
   });
 });

@@ -265,5 +265,5 @@ export function compileChart(
 
   // 鍵指派:依時間序把每顆音符指派到平衡後的鍵(見 docs/adr/0008)。
   const gap = config.minSameFingerGapSec ?? DEFAULT_MIN_SAME_FINGER_GAP_SEC;
-  return assignKeys(sorted, gap);
+  return assignKeys(sorted, gap, config.keyGroup ?? 'all');
 }

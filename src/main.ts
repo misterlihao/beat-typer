@@ -10,7 +10,17 @@ import { BuiltinChartSource } from './loader/builtin.ts';
 import { ZipChartSource } from './loader/zip.ts';
 import type { ChartSource, SongHandle } from './loader/types.ts';
 import { renderPreview } from './preview/renderTable.ts';
-import type { DifficultyRef, SongInfo, TypingChart } from './compile/types.ts';
+import { KEY_GROUPS, type DifficultyRef, type KeyGroup, type SongInfo, type TypingChart } from './compile/types.ts';
+import { loadSettings, patchSettings } from './settings/settings.ts';
+
+// 難度畫面用的鍵群顯示名(issue 15);鍵群清單本身以 compile 的 KEY_GROUPS 為權威。
+const KEY_GROUP_LABELS: Record<KeyGroup, string> = {
+  all: '全鍵',
+  home: '家排',
+  'home-top': '家排+上排',
+  'index-middle': '食指中指',
+  'ring-pinky': '無名小指',
+};
 
 const decoder = new TextDecoder('utf-8');
 
@@ -109,13 +119,39 @@ async function showDifficultyScreen(
         ← 返回
       </button>
       <h1 id="bt-song" style="font-size:24px;margin:18px 0 4px;text-align:center"></h1>
-      <p style="color:#8b93a7;margin:0 0 26px;text-align:center;font-size:13px">選擇難度</p>
+      <p style="color:#8b93a7;margin:0 0 10px;text-align:center;font-size:13px">訓練鍵群</p>
+      <div id="bt-keygroup" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:0 0 24px"></div>
+      <p style="color:#8b93a7;margin:0 0 12px;text-align:center;font-size:13px">選擇難度</p>
       <div id="bt-groups"></div>
       <div id="bt-error" style="min-height:22px;margin-top:18px;color:#e05656;white-space:pre-wrap;text-align:center"></div>
     </div>`;
   root.querySelector<HTMLElement>('#bt-song')!.textContent = songName;
   const errorBox = root.querySelector<HTMLElement>('#bt-error')!;
   const groupsBox = root.querySelector<HTMLElement>('#bt-groups')!;
+
+  // 鍵群選擇(issue 15):讀持久偏好當初值,切換即持久化;選定難度時由 startSong 讀回套進編譯。
+  const kgBox = root.querySelector<HTMLElement>('#bt-keygroup')!;
+  let currentGroup: KeyGroup = loadSettings().keyGroup;
+  const renderKeyGroups = () => {
+    kgBox.replaceChildren();
+    for (const g of KEY_GROUPS) {
+      const on = g === currentGroup;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = KEY_GROUP_LABELS[g];
+      b.style.cssText =
+        `font-size:13px;padding:9px 15px;cursor:pointer;border-radius:9px;` +
+        `border:1px solid ${on ? '#5ad1c4' : '#4a5163'};` +
+        `background:${on ? '#17282a' : '#161a24'};color:${on ? '#5ad1c4' : '#cdd3df'}`;
+      b.addEventListener('click', () => {
+        currentGroup = g;
+        patchSettings({ keyGroup: g }); // 跨場持久化(issue 12 設定層)
+        renderKeyGroups();
+      });
+      kgBox.appendChild(b);
+    }
+  };
+  renderKeyGroups();
 
   const pick = (diff: DifficultyRef) => {
     errorBox.textContent = '';
@@ -165,8 +201,10 @@ async function startSong(
 ): Promise<void> {
   const diffText = cachedDiffText ?? decoder.decode(await song.readFile(diff.filename));
 
-  // 編譯成 TypingChart(純函式,唯一正規化點)。
-  let chart = compileChart({ infoText, difficultyFiles: { [diff.filename]: diffText } }, diff.difficulty);
+  // 編譯成 TypingChart(純函式,唯一正規化點)。鍵群為跨場偏好,編譯前由設定層讀回(issue 15)。
+  let chart = compileChart({ infoText, difficultyFiles: { [diff.filename]: diffText } }, diff.difficulty, {
+    keyGroup: loadSettings().keyGroup,
+  });
 
   // DEV-only:?occtest 用合成譜面重現「同列上段遮下段」的遮蔽(Y/N、T/B),供 playtest 驗修正。
   if (import.meta.env.DEV && new URLSearchParams(location.search).has('occtest')) {

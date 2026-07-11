@@ -1,7 +1,8 @@
-// 薄設定層:三個玩家偏好/校準(飛行時間 / offset / 按鍵音量)持久化到 localStorage。
-// 皆為跨譜、跨場的全域偏好,非單譜屬性(見 docs/issues/12)。
+// 薄設定層:跨譜、跨場的全域玩家偏好持久化到 localStorage(見 docs/issues/12)。
+// 數值偏好(飛行時間 / offset / 按鍵音量)+ 列舉偏好(訓練鍵群,issue 15)。
 // 純函式 coerceSettings 可測;localStorage 讀寫為薄 I/O,不 mock、不測。
-// 不 import compileChart / judge——設定層與純函式接縫完全解耦。
+// 只從 compile 取 KeyGroup「詞彙」(純型別/常數,非接縫函式);仍不 import compileChart / judge。
+import { KEY_GROUPS, type KeyGroup } from '../compile/types.ts';
 
 const STORAGE_KEY = 'beat-typer:settings';
 
@@ -17,7 +18,11 @@ export const SETTINGS_SPEC = {
 } as const;
 
 export type SettingKey = keyof typeof SETTINGS_SPEC;
-export type Settings = { [K in SettingKey]: number };
+
+/** 列舉設定的單一真相:合法值集 + 預設。keyGroup 的合法值即 compile 的 KEY_GROUPS。 */
+export const KEY_GROUP_DEFAULT: KeyGroup = 'all';
+
+export type Settings = { [K in SettingKey]: number } & { keyGroup: KeyGroup };
 
 const KEYS = Object.keys(SETTINGS_SPEC) as SettingKey[];
 
@@ -25,7 +30,7 @@ const clamp = (v: number, min: number, max: number): number => Math.min(max, Mat
 
 /**
  * 把任意來源(壞 JSON 的 parse 結果、被手動竄改的值)強制成合法 Settings:
- * 缺欄位 / 非有限數 → 回退預設;超出區間 → 夾回 [min, max]。純函式,可測。
+ * 數值:缺 / 非有限 → 回退預設,超區間 → 夾回 [min,max];列舉:不在合法值集 → 回退預設。純函式,可測。
  */
 export function coerceSettings(raw: unknown): Settings {
   const obj = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
@@ -36,6 +41,7 @@ export function coerceSettings(raw: unknown): Settings {
     out[key] =
       typeof val === 'number' && Number.isFinite(val) ? clamp(val, spec.min, spec.max) : spec.default;
   }
+  out.keyGroup = KEY_GROUPS.includes(obj.keyGroup as KeyGroup) ? (obj.keyGroup as KeyGroup) : KEY_GROUP_DEFAULT;
   return out;
 }
 

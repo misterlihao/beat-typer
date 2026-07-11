@@ -6,7 +6,7 @@
 //  - 朝「教學權重」攤平各鍵出現量(家排>上>下、食指/中指>無名/小指;內側鍵打折)。
 //  - 可玩性硬底線:同一手、時間相鄰過近者不指派同一手指。
 import { innerKeyFor, keyFor } from './mapping.ts';
-import type { Bank, Finger, Hand, Note } from './types.ts';
+import type { Bank, Finger, Hand, KeyGroup, Note } from './types.ts';
 
 /** 待指派音符:已知時間、手、種類,尚未決定手指/排/鍵。 */
 export interface UnassignedNote {
@@ -32,8 +32,20 @@ interface PoolKey {
   readonly weight: number;
 }
 
-/** 建某手的鍵池:12 個一般鍵 + 3 個內側鍵(食指),各帶教學權重。 */
-function buildPool(hand: Hand): PoolKey[] {
+// 鍵群 → 排/指過濾(缺欄位=不限制該維度)。權威清單見 compile/types.ts KEY_GROUPS;見 docs/adr/0011。
+const GROUP_FILTER: Record<KeyGroup, { banks?: readonly Bank[]; fingers?: readonly Finger[] }> = {
+  all: {},
+  home: { banks: ['home'] },
+  'home-top': { banks: ['home', 'top'] },
+  'index-middle': { fingers: ['index', 'middle'] },
+  'ring-pinky': { fingers: ['ring', 'pinky'] },
+};
+
+/**
+ * 建某手的鍵池:12 個一般鍵 + 3 個內側鍵(食指),各帶教學權重;再依鍵群過濾成子集。
+ * 鍵群一律雙手對稱且皆非空(見 docs/adr/0011),故過濾後至少仍有數鍵。
+ */
+function buildPool(hand: Hand, keyGroup: KeyGroup): PoolKey[] {
   const pool: PoolKey[] = [];
   for (const finger of FINGERS) {
     for (const bank of BANKS) {
@@ -43,7 +55,8 @@ function buildPool(hand: Hand): PoolKey[] {
   for (const bank of BANKS) {
     pool.push({ finger: 'index', bank, key: innerKeyFor(hand, bank), weight: FINGER_WEIGHT.index * BANK_WEIGHT[bank] * INNER_PENALTY });
   }
-  return pool;
+  const { banks, fingers } = GROUP_FILTER[keyGroup];
+  return pool.filter((p) => (!banks || banks.includes(p.bank)) && (!fingers || fingers.includes(p.finger)));
 }
 
 // 某手目前佔用中的手指(recent press 或進行中的 hold + 恢復窗)。
@@ -56,9 +69,14 @@ interface Occupancy {
  * 把待指派音符(須依 tSec 遞增)逐一指派成 Note。
  * @param notes 依時間排序的待指派音符
  * @param minSameFingerGapSec 可玩性硬底線:同手同指的最小間隔秒數
+ * @param keyGroup 訓練鍵群:限縮雙手鍵池到子集(預設 'all' 不限制)。降級時只在群內放寬。
  */
-export function assignKeys(notes: readonly UnassignedNote[], minSameFingerGapSec: number): Note[] {
-  const pools: Record<Hand, PoolKey[]> = { left: buildPool('left'), right: buildPool('right') };
+export function assignKeys(
+  notes: readonly UnassignedNote[],
+  minSameFingerGapSec: number,
+  keyGroup: KeyGroup = 'all',
+): Note[] {
+  const pools: Record<Hand, PoolKey[]> = { left: buildPool('left', keyGroup), right: buildPool('right', keyGroup) };
   const count: Record<string, number> = {}; // 鍵碼 → 已指派次數(左右手鍵碼不重疊)
   const active: Record<Hand, Occupancy[]> = { left: [], right: [] };
 

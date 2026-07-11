@@ -30,10 +30,19 @@ export interface Note {
 /** compileChart 的輸出:依 tSec 排序、一次一鍵的按鍵時間軸。 */
 export type TypingChart = readonly Note[];
 
+/**
+ * 鍵群(Key Group):鍵指派可用鍵池的預設子集,供針對性練習。一律雙手對稱,故不改變
+ * 顏色→手/音符數/判定分母(見 docs/adr/0011、CONTEXT「鍵群」)。KEY_GROUPS 為權威清單。
+ */
+export const KEY_GROUPS = ['all', 'home', 'home-top', 'index-middle', 'ring-pinky'] as const;
+export type KeyGroup = (typeof KEY_GROUPS)[number];
+
 /** compileChart 的組態。 */
 export interface CompileConfig {
   /** 鍵指派可玩性硬底線:同手同指的最小間隔秒數(預設 0.12)。見 docs/adr/0008。 */
   readonly minSameFingerGapSec?: number;
+  /** 訓練鍵群:限縮鍵池到子集;預設 'all'(不限制)。見 docs/adr/0011。 */
+  readonly keyGroup?: KeyGroup;
 }
 
 /** 一個難度的指標(來自 Info.dat)。 */
