@@ -928,7 +928,9 @@ function buildInfoCard(deps: HighwayDeps): HTMLElement {
     'position:absolute;left:12px;top:12px;z-index:2;display:flex;gap:10px;align-items:center;' +
     'max-width:44%;padding:8px 12px 8px 8px;border-radius:10px;' +
     'background:#12151dcc;border:1px solid #2a3040;font-family:system-ui,sans-serif;' +
-    'backdrop-filter:blur(3px);';
+    'backdrop-filter:blur(3px);' +
+    // 線性放大:整張卡等比 scale(1.5),原點左上以維持錨在 (12,12) 角落。
+    'transform:scale(1.5);transform-origin:top left;';
   const cover = deps.coverUrl
     ? `<img src="${deps.coverUrl}" alt=""
          style="width:44px;height:44px;border-radius:6px;object-fit:cover;display:block;flex:0 0 auto;" />`
