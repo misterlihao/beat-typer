@@ -150,6 +150,7 @@ export function startHighway(
   container.appendChild(buildControls(settings));
   container.appendChild(buildFeedback());
   container.appendChild(buildPauseOverlay());
+  container.appendChild(buildCountdown());
   root.replaceChildren(container);
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -355,8 +356,9 @@ export function startHighway(
   };
 
   let raf = 0;
-  // 遊戲狀態機(issue 13):idle → playing ⇄ paused;playing → ended。控制鍵與覆蓋層據此。
-  let state: 'idle' | 'playing' | 'paused' | 'ended' = 'idle';
+  // 遊戲狀態機(issue 13 + grilling 2026-07-12):idle → countdown → playing ⇄ paused;playing → ended。
+  // countdown = 進 playing 前的統一 321 前奏(首玩/續玩/重玩三入口共用);控制鍵與覆蓋層據此。
+  let state: 'idle' | 'countdown' | 'playing' | 'paused' | 'ended' = 'idle';
   const loop = (ts: number) => {
     const now = player.positionSec;
     if (judger) {
@@ -413,7 +415,7 @@ export function startHighway(
     raf = 0;
   };
 
-  positionNotes(-Infinity); // 進場靜態畫面(格線),按下開始才播放並啟動迴圈
+  positionNotes(-Infinity); // 進場靜態畫面(格線);隨後 beginFromZero 自動倒數開跑
   renderer.render(scene, camera);
 
   // ── 輸入:遊玩中收 keydown,當場 press 給即時回饋 ──
@@ -449,10 +451,10 @@ export function startHighway(
   };
   window.addEventListener('keyup', onKeyUp);
 
-  // ── 控制列自動顯隱:滑鼠靠近底部才淡入;開始前(需按開始鈕)恆顯,不遮遊玩畫面。 ──
+  // ── 控制列自動顯隱:遊玩/倒數時滑鼠靠近底部才淡入;暫停時固定顯示(可調滑桿)。 ──
   const bar = container.querySelector<HTMLDivElement>('.bt-controls')!;
   const REVEAL_PX = 140;
-  let barPinned = true; // 尚未開始 → 恆顯
+  let barPinned = true; // 初值;進場 beginFromZero 進倒數即轉為自動顯隱
   const setBarShown = (shown: boolean) => {
     bar.style.opacity = shown ? '1' : '0';
     bar.style.transform = shown ? 'translateY(0)' : 'translateY(100%)';
@@ -466,8 +468,7 @@ export function startHighway(
   };
   container.addEventListener('pointermove', onPointerMove);
 
-  // ── 控制:開始 / 暫停 / 繼續 / 重新開始 / 回選歌(issue 13 + 09) ──
-  const startBtn = container.querySelector<HTMLButtonElement>('.bt-start')!;
+  // ── 控制:暫停 / 繼續 / 重新開始 / 回選歌(issue 13 + 09;開始由進場倒數自動觸發) ──
   const overlay = container.querySelector<HTMLDivElement>('.bt-overlay')!;
   const overlayTitle = container.querySelector<HTMLDivElement>('.bt-overlay-title')!;
   const resumeBtn = container.querySelector<HTMLButtonElement>('.bt-resume')!;
@@ -545,44 +546,89 @@ export function startHighway(
     showProgress();
   };
 
-  // 從 0 完整重來:重建 Judger、清狀態、play(0)、啟動迴圈。開始鈕與重新開始鈕共用。
-  const beginFromZero = async () => {
+  // ── 統一 321 倒數(進 playing 前的前奏;grilling 2026-07-12)──
+  // 倒數結束後真正啟動的續播動作:freshLaunch=從 0(首玩/重玩),resumeLaunch=從凍結位置(暫停續玩)。
+  // 倒數被打斷回暫停時保留此意圖,「繼續」時重跑同一種倒數→續播,不必處理「暫停一個尚未開始的東西」。
+  const freshLaunch = async () => {
+    state = 'playing';
+    await player.play(0);
+    startLoop();
+  };
+  const resumeLaunch = () => {
+    state = 'playing';
+    void player.play(); // 從凍結位置續播
+    startLoop();
+  };
+  let pendingLaunch: () => void = freshLaunch;
+
+  const countdownEl = container.querySelector<HTMLDivElement>('.bt-countdown')!;
+  const countNumEl = container.querySelector<HTMLDivElement>('.bt-count-num')!;
+  let countdownTimers: number[] = [];
+  const clearCountdown = () => {
+    for (const t of countdownTimers) clearTimeout(t);
+    countdownTimers = [];
+  };
+  const setCountNum = (n: number) => {
+    countNumEl.textContent = String(n);
+    countNumEl.classList.remove('bt-pop');
+    void countNumEl.offsetWidth; // reflow 重播 pop
+    countNumEl.classList.add('bt-pop');
+  };
+  // 3→2→1 各 1 秒、每個數字一聲高音 tick;啟動瞬間無音。可被 Space/Esc 或切背景打斷(→ 暫停)。
+  const runCountdown = () => {
+    clearCountdown();
     hideOverlay();
-    barPinned = false; // 遊玩中改為滑鼠靠近才顯(從暫停按重開時也還原)
+    state = 'countdown';
+    barPinned = false; // 與遊玩一致:控制列改為滑鼠靠近才顯
     setBarShown(false);
+    countdownEl.style.display = 'grid';
+    void player.resume(); // 解鎖 AudioContext(黏性啟用內):tick 才出得了聲、之後續播不卡
+    setCountNum(3);
+    player.playTick('high');
+    countdownTimers.push(window.setTimeout(() => { setCountNum(2); player.playTick('high'); }, 1000));
+    countdownTimers.push(window.setTimeout(() => { setCountNum(1); player.playTick('high'); }, 2000));
+    countdownTimers.push(window.setTimeout(() => {
+      countdownTimers = [];
+      countdownEl.style.display = 'none';
+      pendingLaunch();
+    }, 3000));
+  };
+  // 倒數被打斷 → 回暫停覆蓋層(保留 pendingLaunch:之後「繼續」重跑倒數→同一種續播)。
+  const cancelCountdownToPause = () => {
+    clearCountdown();
+    countdownEl.style.display = 'none';
+    state = 'paused';
+    showOverlay('paused');
+    barPinned = true;
+    setBarShown(true);
+  };
+
+  // 全新一場(首玩 / 重玩 / 重新開始):重建 Judger、清狀態,經倒數後從 0 播。
+  const beginFromZero = () => {
     judger = new Judger(chart, judgeConfig);
     resetVisualState();
-    await player.play(0);
-    state = 'playing';
-    startLoop();
+    positionNotes(-Infinity); // 靜態畫面(僅格線)墊在倒數覆蓋層後
+    renderer.render(scene, camera);
+    pendingLaunch = freshLaunch;
+    runCountdown();
   };
   const pauseRun = () => {
     if (state !== 'playing') return;
     player.pause(); // 凍結 positionSec → 暫停期間不流逝、迴圈停 → 無假 Miss
     stopLoop();
     state = 'paused';
+    pendingLaunch = resumeLaunch; // 繼續 = 從凍結位置續播
     showOverlay('paused');
     barPinned = true; // 暫停中固定顯示控制列,讓玩家能就地調整滑桿(疊在覆蓋層之上)
     setBarShown(true);
   };
   const resumeRun = () => {
     if (state !== 'paused') return;
-    hideOverlay();
-    barPinned = false; // 還原遊玩中的自動顯隱
-    setBarShown(false);
-    state = 'playing';
-    void player.play(); // 從凍結位置續播
-    startLoop();
+    runCountdown(); // 依 pendingLaunch(續播 or 從 0)於倒數後啟動
   };
 
-  startBtn.addEventListener('click', () => {
-    void (async () => {
-      startBtn.style.display = 'none';
-      await beginFromZero();
-    })();
-  });
   resumeBtn.addEventListener('click', resumeRun);
-  restartBtn.addEventListener('click', () => void beginFromZero());
+  restartBtn.addEventListener('click', beginFromZero);
   // 回選歌:交給編排層切回著陸頁(deps.onExit 內含 highway cleanup → 停音訊/釋放 GPU)。
   exitBtn.addEventListener('click', () => deps.onExit?.());
 
@@ -602,19 +648,23 @@ export function startHighway(
     showOverlay('ended');
   };
 
-  // Space / Escape 皆切換 暫停⇄繼續(非遊戲鍵;preventDefault 防捲動)。僅遊玩/暫停中作用。
+  // Space / Escape:遊玩→暫停、暫停→繼續(倒數)、倒數→打斷回暫停(非遊戲鍵;preventDefault 防捲動)。
   const onControlKey = (e: KeyboardEvent) => {
     if (e.repeat || (e.code !== 'Space' && e.code !== 'Escape')) return;
-    if (state !== 'playing' && state !== 'paused') return;
+    if (state !== 'playing' && state !== 'paused' && state !== 'countdown') return;
     e.preventDefault();
     if (state === 'playing') pauseRun();
-    else resumeRun();
+    else if (state === 'paused') resumeRun();
+    else cancelCountdownToPause(); // countdown
   };
   window.addEventListener('keydown', onControlKey);
 
-  // 分頁切到背景 → 自動暫停(背景凍結 rAF 但音訊續播,回來時會一次判一堆 Miss、combo 整斷)。
+  // 分頁切到背景 → 自動暫停(背景凍結 rAF 但音訊續播,回來時會一次判一堆 Miss、combo 整斷);
+  // 倒數中切背景則打斷回暫停,避免回來時音樂已自己啟動。
   const onVisibility = () => {
-    if (document.hidden) pauseRun();
+    if (!document.hidden) return;
+    if (state === 'playing') pauseRun();
+    else if (state === 'countdown') cancelCountdownToPause();
   };
   document.addEventListener('visibilitychange', onVisibility);
 
@@ -644,8 +694,12 @@ export function startHighway(
     patchSettings({ tickVolume: player.tickVolume });
   });
 
+  // 進場即自動開跑:選完難度 / 切回本視圖後不需按鈕,直接倒數 → 開始(grilling 2026-07-12)。
+  beginFromZero();
+
   return () => {
     cancelAnimationFrame(raf);
+    clearCountdown(); // 卸載時清掉未觸發的倒數計時器,避免對已卸載的 DOM/player 動作
     window.removeEventListener('resize', resize);
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
@@ -730,7 +784,7 @@ function makeGlyphSprite(glyph: string, color = '#ffffff', scale = 0.85, onTop =
 }
 
 // ── 疊在畫布上的 HTML 控制列(底部;右側留白避開「切換預覽」浮鈕) ──
-// 預設隱藏,滑鼠靠近底部或開始前(需按開始鈕)才淡入;由 startHighway 綁定顯隱。
+// 預設隱藏,滑鼠靠近底部才淡入(暫停時固定顯示);由 startHighway 綁定顯隱。無「開始」鈕:進場自動倒數開跑。
 function buildControls(settings: Settings): HTMLElement {
   const bar = document.createElement('div');
   bar.className = 'bt-controls';
@@ -744,10 +798,6 @@ function buildControls(settings: Settings): HTMLElement {
   const o = SETTINGS_SPEC.offsetSec;
   const v = SETTINGS_SPEC.tickVolume;
   bar.innerHTML = `
-    <button type="button" class="bt-start"
-      style="font-size:15px;padding:8px 20px;cursor:pointer;border:0;border-radius:6px;background:#2e86d6;color:#fff;">
-      ▶ 開始
-    </button>
     <label style="display:flex;gap:6px;align-items:center;">飛行時間
       <input type="range" class="bt-flight" min="${f.min}" max="${f.max}" step="${f.step}" value="${settings.flightTime}" />
       <span class="bt-flight-val" style="width:44px;">${settings.flightTime.toFixed(2)}s</span>
@@ -796,6 +846,19 @@ function buildPauseOverlay(): HTMLElement {
       </div>
     </div>`;
   return overlay;
+}
+
+// ── 倒數過場覆蓋層(統一前奏):置中大數字;z-index 高於控制列(6)與暫停層(5),蓋住整個畫面。 ──
+function buildCountdown(): HTMLElement {
+  const el = document.createElement('div');
+  el.className = 'bt-countdown';
+  el.style.cssText =
+    'position:absolute;inset:0;display:none;place-items:center;z-index:7;pointer-events:none;' +
+    'background:#0b0d1299;font-family:system-ui,sans-serif;';
+  el.innerHTML =
+    `<div class="bt-count-num" style="font-size:160px;font-weight:900;color:#eef1f7;line-height:1;` +
+    `text-shadow:0 6px 28px #000;transform-origin:50% 50%;"></div>`;
+  return el;
 }
 
 // ── 頂部進度條 + 時間、combo(右上)、判定閃字(中央) ──
@@ -855,7 +918,9 @@ function ensureHudStyle(): void {
     @keyframes bt-combo-pop { 0% { transform: scale(1.45); } 100% { transform: scale(1); } }
     .bt-combo.bt-pop { animation: bt-combo-pop 260ms cubic-bezier(.2,.9,.3,1); }
     @keyframes bt-grade-pop { 0% { transform: scale(1.8); opacity: 0; } 55% { opacity: 1; } 100% { transform: scale(1); } }
-    .bt-grade-hero.bt-pop { animation: bt-grade-pop 420ms cubic-bezier(.2,.9,.3,1); }`;
+    .bt-grade-hero.bt-pop { animation: bt-grade-pop 420ms cubic-bezier(.2,.9,.3,1); }
+    @keyframes bt-count-pop { 0% { transform: scale(1.6); opacity: 0; } 40% { opacity: 1; } 100% { transform: scale(1); opacity: .95; } }
+    .bt-count-num.bt-pop { animation: bt-count-pop 900ms cubic-bezier(.2,.9,.3,1); }`;
   document.head.appendChild(style);
 }
 

@@ -45,7 +45,8 @@ const NETWORK_ERROR = '下載失敗,請檢查網路連線後再試';
 
 /** BSR 譜面來源。一個代號 = 一首歌。傳入的 code 應已由 parseBsrCode 驗證過。 */
 export class BsrChartSource implements ChartSource {
-  constructor(private readonly code: string) {}
+  // code 公開:編排層據此把成功載入的 BSR 記入「最近遊玩」清單(issue 19 切片)。
+  constructor(public readonly code: string) {}
 
   async listSongs(): Promise<SongHandle[]> {
     // 1) 查 metadata。

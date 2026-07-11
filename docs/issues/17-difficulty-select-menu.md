@@ -20,23 +20,23 @@
    - **濾掉 Lightshow**(純燈光、無音符)。
    - 難度按**標準序** Easy→Normal→Hard→Expert→ExpertPlus(非檔案序);未知難度排最後。
    - **多 characteristic 才分組**顯示(Standard 優先);單一特性不顯示分組標題。
-   - 每顆按鈕顯示**難度名 + NPS**。
+   - 每顆按鈕顯示**難度名 + WPM**(打字速度)。
    - 一律顯示選單(即使只有一個難度)。
-3. **NPS(粗估,精度不重要)**:`NPS ≈ 音符數 ÷ (最後一顆音符 beat × 60 / BPM)`,常數 BPM 近似(**忽略變速、不解碼音訊**),只用 parseInfo 已有的 `bpm`。純函式 `noteStats(diffText) → {count, lastBeat}`(v3 數 `colorNotes`;v2 數 `_notes` 濾炸彈 `_type 3`)。無音符 → 不顯示 NPS。
-4. **預讀**:為算各難度 NPS,開選單前**讀齊所有可玩難度檔**(單首歌幾個檔,可接受),快取文字供選定後 compile 重用(不重讀)。
+3. **WPM(粗估,精度不重要)**:先算 `NPS ≈ 音符數 ÷ (最後一顆音符 beat × 60 / BPM)`,常數 BPM 近似(**忽略變速、不解碼音訊**),只用 parseInfo 已有的 `bpm`;每顆音符 = 一次敲鍵、5 鍵 = 1 詞,故**顯示為 WPM = NPS × 60 ÷ 5 = NPS × 12**(打字練習的直覺單位,grilling 2026-07-12)。純函式 `noteStats(diffText) → {count, lastBeat}`(v3 數 `colorNotes`;v2 數 `_notes` 濾炸彈 `_type 3`)。無音符 → 不顯示。
+4. **預讀**:為算各難度速度,開選單前**讀齊所有可玩難度檔**(單首歌幾個檔,可接受),快取文字供選定後 compile 重用(不重讀)。
 5. **返回**:難度畫面左上「← 返回」回著陸畫面(重選來源)。進高速公路後維持現狀(無返回,換歌重整)。
 
 ### 純函式接縫(寫 fixtures)
 
 - `buildDifficultyMenu(difficulties) → DifficultyGroup[]`:濾 Lightshow + 分組 + 標準序(Standard 組優先)。
 - `noteStats(diffText) → {count, lastBeat}`:v2/v3 音符數與末拍。
-- NPS 算術與畫面渲染為 I/O/薄層,靠 playtest 驗。
+- NPS→WPM 換算與畫面渲染為 I/O/薄層,靠 playtest 驗。
 
 ## Acceptance criteria
 
 - [ ] 載入任一來源(內建/zip/BSR)後顯示難度選擇畫面,列出可玩難度
 - [ ] 難度按標準序;Lightshow 不出現;多 characteristic 才分組(Standard 優先)
-- [ ] 每個難度顯示 NPS 粗估;選定後進高速公路玩該難度
+- [ ] 每個難度顯示 WPM 粗估(NPS × 12);選定後進高速公路玩該難度
 - [ ] `buildDifficultyMenu`、`noteStats` 有 vitest fixtures
 - [ ] 「← 返回」回著陸畫面;錯誤(缺難度檔/音訊解不開)沿用既有紅字路徑
 - [ ] compileChart / judge 純函式不變;選單/畫面為薄層
@@ -44,6 +44,6 @@
 ## Out of scope
 
 - CustomLevels 資料夾來源與選歌畫面(issue 05)。
-- 精確 NPS(變速加權 / 音訊實際長度)。
+- 精確速度(變速加權 / 音訊實際長度)。
 - 難度檔的音符數以外的 metadata(星等、mapper…)。
 - 高速公路內即時換難度(選單只在進場前)。

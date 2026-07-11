@@ -8,6 +8,7 @@ import { startHighway, type ResultsBest } from './highway/highway.ts';
 import type { JudgeSummary } from './judge/types.ts';
 import { adjustedAccuracy, loadScores, recordRun, songKey } from './scores/scores.ts';
 import { BsrChartSource, parseBsrCode } from './loader/bsr.ts';
+import { loadRecentBsr, recordRecentBsr } from './loader/recentBsr.ts';
 import { BuiltinChartSource } from './loader/builtin.ts';
 import { ZipChartSource } from './loader/zip.ts';
 import type { ChartSource, SongHandle } from './loader/types.ts';
@@ -80,12 +81,16 @@ async function bootstrap(root: HTMLElement, source: ChartSource): Promise<void> 
   // 讀 Info.dat → 淺解析(BPM / 音訊檔 / 難度清單),再進難度選擇畫面(issue 17)。
   const infoText = decoder.decode(await song.readFile('Info.dat'));
   const info = parseInfo(infoText);
+  // BSR 成功載入(進到難度畫面)→ 記入「最近遊玩」清單,供著陸畫面一鍵重開(issue 19 切片)。
+  if (source instanceof BsrChartSource) {
+    recordRecentBsr(source.code, info.songName ?? song.title);
+  }
   await showDifficultyScreen(root, song, info, infoText);
 }
 
 /**
- * 難度選擇畫面(issue 17):列出可玩難度(濾 Lightshow、標準序、多特性分組)+ NPS 粗估。
- * 開畫面前預讀所有可玩難度檔算 NPS 並快取,選定後直接重用(不重讀)。選定 → startSong;返回 → 著陸畫面。
+ * 難度選擇畫面(issue 17):列出可玩難度(濾 Lightshow、標準序、多特性分組)+ WPM 粗估。
+ * 開畫面前預讀所有可玩難度檔算 WPM 並快取,選定後直接重用(不重讀)。選定 → startSong;返回 → 著陸畫面。
  */
 async function showDifficultyScreen(
   root: HTMLElement,
@@ -96,9 +101,10 @@ async function showDifficultyScreen(
   const groups = buildDifficultyMenu(info.difficulties);
   if (groups.length === 0) throw new Error('這張譜沒有可玩難度(只有燈光譜)');
 
-  // 預讀每個可玩難度檔 → 快取文字 + NPS 粗估(NPS ≈ 音符數 ÷ 末拍秒數,常數 BPM 近似)。
+  // 預讀每個可玩難度檔 → 快取文字 + 打字速度粗估。
+  // NPS ≈ 音符數 ÷ 末拍秒數(常數 BPM 近似);每顆音符 = 一次敲鍵、5 鍵 = 1 詞 → WPM = NPS × 60 ÷ 5 = NPS × 12。
   const cache = new Map<string, string>();
-  const npsLabel = new Map<string, string>();
+  const wpmLabel = new Map<string, string>();
   for (const g of groups) {
     for (const d of g.difficulties) {
       try {
@@ -106,9 +112,9 @@ async function showDifficultyScreen(
         cache.set(d.filename, text);
         const { count, lastBeat } = noteStats(text);
         const nps = lastBeat > 0 ? count / ((lastBeat * 60) / info.bpm) : 0;
-        npsLabel.set(d.filename, nps > 0 ? `${nps.toFixed(1)} NPS` : '');
+        wpmLabel.set(d.filename, nps > 0 ? `${Math.round(nps * 12)} WPM` : '');
       } catch {
-        npsLabel.set(d.filename, ''); // 讀失敗 → 無 NPS;真正的錯誤留待選定後編譯時暴露
+        wpmLabel.set(d.filename, ''); // 讀失敗 → 無 WPM;真正的錯誤留待選定後編譯時暴露
       }
     }
   }
@@ -180,18 +186,18 @@ async function showDifficultyScreen(
         'display:flex;justify-content:space-between;align-items:center;width:100%;margin:0 0 12px;' +
         'font-size:19px;padding:22px 24px;cursor:pointer;border:1px solid #4a5163;border-radius:12px;' +
         'background:#161a24;color:#cdd3df';
-      // 左側:難度名 + NPS(譜面資訊);右側:過去最佳(有紀錄才顯示,調整後準確率 + 鍵群)。
+      // 左側:難度名 + WPM(打字速度粗估);右側:過去最佳(有紀錄才顯示,調整後準確率 + 鍵群)。
       const left = document.createElement('div');
       left.style.cssText = 'display:flex;flex-direction:column;align-items:flex-start;gap:4px;';
       const name = document.createElement('span');
       name.textContent = d.difficulty;
       left.appendChild(name);
-      const npsText = npsLabel.get(d.filename) ?? '';
-      if (npsText) {
-        const nps = document.createElement('span');
-        nps.textContent = npsText;
-        nps.style.cssText = 'color:#8b93a7;font-size:14px';
-        left.appendChild(nps);
+      const wpmText = wpmLabel.get(d.filename) ?? '';
+      if (wpmText) {
+        const wpm = document.createElement('span');
+        wpm.textContent = wpmText;
+        wpm.style.cssText = 'color:#8b93a7;font-size:14px';
+        left.appendChild(wpm);
       }
       // 右側:過去最佳,拆兩行——分數行大、模式(鍵群)行小。
       const diffText = cache.get(d.filename);
@@ -380,6 +386,7 @@ function showLanding(app: HTMLElement, errorMessage?: string): void {
           下載
         </button>
       </div>
+      <div id="bt-recent"></div>
       <div style="margin-top:22px">
         <button id="bt-sample" type="button"
           style="font-size:14px;padding:9px 18px;cursor:pointer;border:1px solid #4a5163;border-radius:8px;background:#1b1f2a;color:#cdd3df">
@@ -424,6 +431,35 @@ function showLanding(app: HTMLElement, errorMessage?: string): void {
       runBsr();
     }
   });
+
+  // 最近遊玩的 BSR(issue 19 切片):BSR 輸入下方列出,點擊 = 重新下載重玩(同一套流程與錯誤處理)。
+  // 顯示區約 6 列高、超出捲軸;清單為空則整區不顯示。歌名 / 代號用 textContent,不信任外來字串。
+  const recentBox = app.querySelector<HTMLElement>('#bt-recent')!;
+  const recent = loadRecentBsr();
+  if (recent.length > 0) {
+    const label = document.createElement('div');
+    label.textContent = '最近';
+    label.style.cssText = 'font-size:12px;color:#8b93a7;margin:20px 0 8px;text-align:left';
+    const list = document.createElement('div');
+    list.style.cssText = 'max-height:290px;overflow-y:auto;display:flex;flex-direction:column;gap:8px';
+    for (const r of recent) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.style.cssText =
+        'display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;text-align:left;' +
+        'font-size:14px;padding:11px 14px;cursor:pointer;border:1px solid #4a5163;border-radius:8px;background:#161a24;color:#cdd3df';
+      const name = document.createElement('span');
+      name.textContent = r.songName;
+      name.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      const code = document.createElement('span');
+      code.textContent = r.code;
+      code.style.cssText = 'flex:0 0 auto;font-size:12px;color:#8b93a7;font-variant-numeric:tabular-nums';
+      b.append(name, code);
+      b.addEventListener('click', () => run(new BsrChartSource(r.code), '下載中…'));
+      list.appendChild(b);
+    }
+    recentBox.append(label, list);
+  }
 
   // 滑鼠點擊由 <label for> 原生開啟選檔視窗(不靠 programmatic click,跨瀏覽器可靠);
   // 鍵盤(label 不會原生回應 Enter/Space)才走 JS 觸發。

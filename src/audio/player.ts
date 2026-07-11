@@ -22,6 +22,12 @@ export class AudioPlayer {
   tickVolume = 0.55;
   /** tick 的最大峰值(tickVolume=1 時的振幅);slider 在 0..此值間縮放。歌很大聲時可推到滿。 */
   private static readonly MAX_TICK_GAIN = 1.0;
+  /**
+   * 歌曲整體衰減係數:Beat Saber 譜面的音樂普遍偏大聲、蓋過按鍵 tick,故一律減半。
+   * 寫死常數(非滑桿):tick 已有獨立音量,歌只需一個固定的配平(見 grilling 2026-07-12)。
+   */
+  private static readonly MUSIC_GAIN = 0.5;
+  private musicGainNode: GainNode | null = null;
 
   private ensureCtx(): AudioContext {
     this.ctx ??= new AudioContext();
@@ -37,6 +43,15 @@ export class AudioPlayer {
 
   get duration(): number {
     return this.buffer?.duration ?? 0;
+  }
+
+  /**
+   * 解鎖 AudioContext(自動播放政策:suspended → running)。需在使用者手勢的黏性啟用內呼叫。
+   * 供「播放前先要發聲」的情境(如倒數的 tick):先 resume,playTick 才出得了聲。
+   */
+  async resume(): Promise<void> {
+    const ctx = this.ensureCtx();
+    if (ctx.state === 'suspended') await ctx.resume();
   }
 
   get isPlaying(): boolean {
@@ -57,9 +72,16 @@ export class AudioPlayer {
     if (ctx.state === 'suspended') await ctx.resume();
 
     this.stopSource();
+    // 歌曲經 musicGain 衰減後再進 destination(tick 仍直連,不受此係數影響)。node 一次建立、重用。
+    this.musicGainNode ??= (() => {
+      const g = ctx.createGain();
+      g.gain.value = AudioPlayer.MUSIC_GAIN;
+      g.connect(ctx.destination);
+      return g;
+    })();
     const source = ctx.createBufferSource();
     source.buffer = this.buffer;
-    source.connect(ctx.destination);
+    source.connect(this.musicGainNode);
     source.onended = () => {
       if (source !== this.source) return; // 被新的 start 取代,忽略
       this.playing = false;
