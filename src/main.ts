@@ -193,13 +193,20 @@ async function showDifficultyScreen(
         nps.style.cssText = 'color:#8b93a7;font-size:14px';
         left.appendChild(nps);
       }
+      // 右側:過去最佳,拆兩行——分數行大、模式(鍵群)行小。
       const diffText = cache.get(d.filename);
       const rec = diffText ? scores.records[songKey(diffText)] : undefined;
-      const best = document.createElement('span');
+      const best = document.createElement('div');
+      best.style.cssText = 'display:flex;flex-direction:column;align-items:flex-end;gap:3px;';
       if (rec) {
-        best.style.cssText = 'font-size:14px;color:#78c2b5';
         const pct = (adjustedAccuracy(rec.bestRawAccuracy, rec.bestKeyGroup) * 100).toFixed(1);
-        best.textContent = `最佳 ${pct}%(${KEY_GROUP_LABELS[rec.bestKeyGroup]})`;
+        const score = document.createElement('span');
+        score.style.cssText = 'font-size:18px;font-weight:700;color:#78c2b5;line-height:1';
+        score.textContent = `最佳 ${pct}%`;
+        const mode = document.createElement('span');
+        mode.style.cssText = 'font-size:12px;color:#8b93a7;line-height:1';
+        mode.textContent = KEY_GROUP_LABELS[rec.bestKeyGroup];
+        best.append(score, mode);
       }
       btn.append(left, best);
       btn.addEventListener('click', () => pick(d));
