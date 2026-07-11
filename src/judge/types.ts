@@ -14,17 +14,31 @@ export interface Judgment {
   readonly deltaSec?: number;
 }
 
-/** 帶時戳的按鍵事件(t = 按下當下的 player.positionSec)。 */
+/**
+ * 帶時戳的按鍵事件(t = 事件當下的 player.positionSec)。
+ * `up` 為放開(keyup);缺省/false = 按下(keydown)。長按尾部判定靠放開事件。
+ */
 export interface InputEvent {
   readonly t: number;
   readonly key: string; // KeyboardEvent.code
+  readonly up?: boolean;
 }
 
-/** 一次按鍵的即時結果(即時回饋用)。 */
+/** 一次按鍵(keydown)的即時結果(即時回饋用)。長按頭部命中亦回 perfect/good(noteIndex 指向該 hold)。 */
 export type PressOutcome =
   | { readonly kind: 'perfect' | 'good'; readonly noteIndex: number; readonly deltaSec: number }
   | { readonly kind: 'miss'; readonly noteIndex: number } // 窗內敲錯鍵
   | { readonly kind: 'extra' }; // 附近無音符的多餘按鍵
+
+/**
+ * 一次放開(keyup)的即時結果。
+ * `break` = 提早放開破壞長按(已判 Miss);`safe` = 撐過破壞點的放開(結果留待尾部鎖定);
+ * `ignored` = 無對應 active hold 的放開(多餘放開,不罰)。
+ */
+export type ReleaseOutcome =
+  | { readonly kind: 'break'; readonly noteIndex: number }
+  | { readonly kind: 'safe'; readonly noteIndex: number }
+  | { readonly kind: 'ignored' };
 
 /** judge 的結算摘要。 */
 export interface JudgeSummary {

@@ -247,12 +247,14 @@ export function compileChart(
   // press:疊放收斂;hold:弧線 head→tail,不參與疊放分組。此時只有時間/手/種類,尚未指派鍵。
   const unassigned: UnassignedNote[] = collapseStacks(presses, beatToSec, offset);
   for (const h of holds) {
-    unassigned.push({
-      tSec: beatToSec(h.beat) + offset,
-      hand: handOf(h.color),
-      kind: 'hold',
-      holdEndSec: beatToSec(h.endBeat) + offset,
-    });
+    const tSec = beatToSec(h.beat) + offset;
+    const holdEndSec = beatToSec(h.endBeat) + offset;
+    // 穩健性:壞資料(尾部不晚於頭部)退化成一般 press,免 3D 畫出反向長條。見 docs/adr/0010。
+    if (holdEndSec <= tSec) {
+      unassigned.push({ tSec, hand: handOf(h.color), kind: 'press' });
+    } else {
+      unassigned.push({ tSec, hand: handOf(h.color), kind: 'hold', holdEndSec });
+    }
   }
 
   // 依 tSec 穩定排序(相同時間點維持原始順序;跨手同拍可共用時間)。

@@ -11,6 +11,7 @@ import type {
   JudgeConfig,
   JudgeSummary,
   PressOutcome,
+  ReleaseOutcome,
 } from './types.ts';
 
 const WEIGHT: Record<'perfect' | 'good', number> = { perfect: 1, good: 0.5 };
@@ -33,6 +34,14 @@ export class Judger {
   private combo = 0;
   private maxCombo = 0;
   private extras = 0;
+  /**
+   * 持續中的長按:頭部已命中、尚未定案。`results[i]` 維持 null(讓渲染續顯長條),
+   * 直到 expiry 在尾部鎖定或 release 提早破壞才寫入。見 docs/adr/0010。
+   */
+  private readonly activeHolds = new Map<
+    number,
+    { result: 'perfect' | 'good'; deltaSec: number; released: boolean }
+  >();
 
   constructor(
     private readonly chart: TypingChart,
@@ -45,13 +54,27 @@ export class Judger {
     return this.chart[i]!.tSec + this.config.offsetSec;
   }
 
+  /** 長按尾部時間(holdEndSec + offset)。 */
+  private tailTime(i: number): number {
+    return this.chart[i]!.holdEndSec! + this.config.offsetSec;
+  }
+
+  /** 長按破壞點:早於此放開即沒撐住。= 尾部 − goodSec。 */
+  private breakPoint(i: number): number {
+    return this.tailTime(i) - this.config.goodSec;
+  }
+
+  private bumpCombo(): void {
+    this.combo += 1;
+    if (this.combo > this.maxCombo) this.maxCombo = this.combo;
+  }
+
   private resolve(i: number, result: 'perfect' | 'good' | 'miss', deltaSec?: number): void {
     this.results[i] = { noteIndex: i, result, ...(deltaSec !== undefined ? { deltaSec } : {}) };
     if (result === 'miss') {
       this.combo = 0;
     } else {
-      this.combo += 1;
-      if (this.combo > this.maxCombo) this.maxCombo = this.combo;
+      this.bumpCombo();
     }
   }
 
@@ -61,9 +84,17 @@ export class Judger {
    */
   expiry(nowSec: number): number[] {
     const { goodSec } = this.config;
+    // 先鎖定撐過尾部的長按(頭部結果定案;combo 已於頭部計入,不變)。
+    for (const [i, h] of this.activeHolds) {
+      if (nowSec >= this.tailTime(i) - EPS) {
+        this.results[i] = { noteIndex: i, result: h.result, deltaSec: h.deltaSec };
+        this.activeHolds.delete(i);
+      }
+    }
     const missed: number[] = [];
     for (let i = 0; i < this.chart.length; i++) {
       if (this.results[i]) continue;
+      if (this.activeHolds.has(i)) continue; // 持續中的長按:不判頭部 Miss
       if (nowSec > this.targetTime(i) + goodSec + EPS) {
         this.resolve(i, 'miss');
         missed.push(i);
@@ -84,6 +115,7 @@ export class Judger {
     let nearestAbs = Infinity;
     for (let i = 0; i < this.chart.length; i++) {
       if (this.results[i]) continue;
+      if (this.activeHolds.has(i)) continue; // 持續中的長按已被認領,不再被其他按下配對
       const delta = event.t - this.targetTime(i);
       const abs = Math.abs(delta);
       if (abs > goodSec + EPS) continue; // 不在窗內
@@ -104,12 +136,40 @@ export class Judger {
     if (matchIdx !== -1) {
       const delta = event.t - this.targetTime(matchIdx);
       const result = Math.abs(delta) <= perfectSec + EPS ? 'perfect' : 'good';
+      if (this.chart[matchIdx]!.kind === 'hold') {
+        // 長按頭部命中:進「持續中」,當場 +combo,但不寫 results[i](尾部才定案)。
+        this.activeHolds.set(matchIdx, { result, deltaSec: delta, released: false });
+        this.bumpCombo();
+        return { kind: result, noteIndex: matchIdx, deltaSec: delta };
+      }
       this.resolve(matchIdx, result, delta);
       return { kind: result, noteIndex: matchIdx, deltaSec: delta };
     }
     // 窗內有目標卻敲錯鍵 → 最近的那顆 Miss + 斷 combo
     this.resolve(nearestIdx, 'miss');
     return { kind: 'miss', noteIndex: nearestIdx };
+  }
+
+  /**
+   * 處理一次放開(keyup)。先自我 expiry 到 event.t(可能先鎖定/補判),
+   * 再找 key 相符、尚未放開的持續中長按套尾部規則。
+   */
+  release(event: InputEvent): ReleaseOutcome {
+    this.expiry(event.t);
+    for (const [i, h] of this.activeHolds) {
+      if (h.released) continue;
+      if (this.chart[i]!.key !== event.key) continue;
+      if (event.t < this.breakPoint(i) - EPS) {
+        // 提早放開 → 破:判 Miss、斷 combo。
+        this.activeHolds.delete(i);
+        this.resolve(i, 'miss');
+        return { kind: 'break', noteIndex: i };
+      }
+      // 撐過破壞點 → 安全;結果留待 expiry 在尾部鎖定。標記已放,忽略後續同鍵放開。
+      h.released = true;
+      return { kind: 'safe', noteIndex: i };
+    }
+    return { kind: 'ignored' }; // 無對應長按的放開,不罰
   }
 
   get currentCombo(): number {
@@ -167,7 +227,8 @@ export function judge(
     .map(({ e }) => e);
   for (const e of ordered) {
     if (e.t > nowSec) break; // 尚未觀察到的事件
-    judger.press(e);
+    if (e.up) judger.release(e);
+    else judger.press(e);
   }
   judger.expiry(nowSec);
   return { judgments: judger.judgments(), summary: judger.summary() };

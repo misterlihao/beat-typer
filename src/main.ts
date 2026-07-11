@@ -51,6 +51,15 @@ function makeOcclusionTestChart(): TypingChart {
   ];
 }
 
+// DEV-only:?holdtest 合成含長按的譜面,供 playtest 驗長按判定/回饋(issue 08)。
+// A(KeyF)撐住 → 鎖定;B(KeyJ)提早放開 → 破。時間落在內建範例音訊(~4s)內。
+function makeHoldTestChart(): TypingChart {
+  return [
+    { tSec: 0.6, key: 'KeyF', kind: 'hold', holdEndSec: 2.0, hand: 'left', finger: 'index', bank: 'home' },
+    { tSec: 2.5, key: 'KeyJ', kind: 'hold', holdEndSec: 3.6, hand: 'right', finger: 'index', bank: 'home' },
+  ];
+}
+
 async function bootstrap(root: HTMLElement, source: ChartSource): Promise<void> {
   const songs = await source.listSongs();
   const song = songs[0];
@@ -162,6 +171,9 @@ async function startSong(
   // DEV-only:?occtest 用合成譜面重現「同列上段遮下段」的遮蔽(Y/N、T/B),供 playtest 驗修正。
   if (import.meta.env.DEV && new URLSearchParams(location.search).has('occtest')) {
     chart = makeOcclusionTestChart();
+  }
+  if (import.meta.env.DEV && new URLSearchParams(location.search).has('holdtest')) {
+    chart = makeHoldTestChart();
   }
 
   // 讀音訊 bytes → 交給音訊層解碼(不經 compileChart)。

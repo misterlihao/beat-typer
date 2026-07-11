@@ -283,6 +283,13 @@ describe('compileChart — v3 弧線 → hold', () => {
     expect(chart).toHaveLength(1);
     expect(chart[0]!.kind).toBe('hold');
   });
+
+  it('壞資料:tail 不晚於 head 的弧線退化成 press(見 ADR 0010)', () => {
+    const chart = compileSliders([], [{ c: 0, b: 2, x: 0, y: 1, tb: 2, tx: 0, ty: 1 }]); // tail beat = head beat
+    expect(chart).toHaveLength(1);
+    expect(chart[0]!.kind).toBe('press');
+    expect(chart[0]!.holdEndSec).toBeUndefined();
+  });
 });
 
 describe('compileChart — 變速(BPM change)beat→秒積分', () => {

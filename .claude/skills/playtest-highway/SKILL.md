@@ -57,6 +57,12 @@ async () => {
 - 音效:清脆 tick(**高音=Perfect、低沉=其他**)。
 - `list_console_messages` 應無 error。
 
+## DEV-only 合成譜面 hook(供特定驗證)
+
+main.ts 在 `import.meta.env.DEV` 下,依 query 覆寫 chart(選定難度後生效,走完整著陸→難度流程):
+- `?occtest`:同列上下段遮蔽再現(Y/N、T/B)。
+- `?holdtest`:含兩顆長按(issue 08)。A=`KeyF` 頭 0.6/尾 2.0、B=`KeyJ` 頭 2.5/尾 3.6。驗長按判定/回饋:自動打按下頭部後持續發光(目標格常亮金/綠)+ 紅/藍長條沿走廊拖到判定平面;撐過破壞點(尾−goodSec)放開或按到尾→鎖定(金脈衝+高音完成音),提早放開→破(MISS 紅閃+斷 combo)。
+
 ## 內建範例參考(golden)
 
 8 顆、~4 秒:左手 `F D R E` @ tSec 0.05/0.55/1.05/1.55(code `KeyF/KeyD/KeyR/KeyE`);右手 `J K U I` @ 2.05/2.55/3.05/3.55(`KeyJ/KeyK/KeyU/KeyI`)。全連 → maxCombo 8。

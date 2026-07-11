@@ -109,6 +109,8 @@ export function startHighway(
   // 刻意不標 JudgeConfig(其 offsetSec 為 readonly);可變物件仍可傳給 Judger。
   const judgeConfig = { ...DEFAULT_JUDGE_CONFIG, offsetSec: settings.offsetSec };
   let judger: Judger | null = null;
+  // 持續中的長按:chart 索引 → 頭部結果(決定持續發光顏色)。頭部命中時加入,鎖定/破時移除。
+  const heldNotes = new Map<number, 'perfect' | 'good'>();
 
   const container = document.createElement('div');
   // 視窗填滿:height:100dvh 精準等於視窗高(dvh 連手機工具列伸縮也吸收),overflow:hidden 確保不出卷軸。
@@ -191,6 +193,16 @@ export function startHighway(
     }
   });
 
+  const visualByIndex = new Map<number, NoteVisual>();
+  for (const v of visuals) visualByIndex.set(v.index, v);
+  const HOLD_EMISSIVE = 0x555555; // 按住期間長條的自發光提亮量(實跑微調)
+  // 長按按住期間把長條材質提亮(自發光),放開/鎖定即還原。強化「這條被咬住了」的感覺。
+  const brightenBody = (idx: number, on: boolean) => {
+    const v = visualByIndex.get(idx);
+    if (!v) return;
+    (v.material as THREE.MeshLambertMaterial).emissive.setHex(on ? HOLD_EMISSIVE : 0x000000);
+  };
+
   const resize = () => {
     const w = container.clientWidth || 1;
     const h = container.clientHeight || 1;
@@ -269,7 +281,9 @@ export function startHighway(
       if (v.segments && v.note.holdEndSec !== undefined) {
         const arrivalTail = v.note.holdEndSec + judgeConfig.offsetSec;
         const pTail = (now - (arrivalTail - flightTime)) / flightTime;
-        const visible = pHead <= 1 && pTail >= 0;
+        // 頭部生成(pHead≥0)起、到尾部抵達判定平面(pTail≤1)止皆可見:
+        // 按住期間頭端已過平面(pHead>1,z 夾在平面),長條仍向平面收攏顯示。
+        const visible = pHead >= 0 && pTail <= 1;
         setVisible(v, visible);
         if (visible) {
           // body 沿彎曲走廊分段貼合:每段取子區間中點的深度求抬升,縮放 Z 填滿該段。
@@ -314,6 +328,27 @@ export function startHighway(
     const age = ts - flashStart; // 回饋閃字淡出
     flashEl.style.opacity = age < FLASH_MS ? String(1 - age / FLASH_MS) : '0';
 
+    // 長按:持續發光 + 偵測鎖定/破(judger 內部由 keyup→release 或尾部 expiry 定案)。
+    if (judger) {
+      for (const [idx, res] of heldNotes) {
+        const r = judger.resultAt(idx);
+        if (r === null) {
+          activateCell(chart[idx]!.key, CELL_COLOR[res], CELL_PEAK[res]); // 按住中 → 目標格續亮(不衰減)
+          continue;
+        }
+        heldNotes.delete(idx);
+        brightenBody(idx, false);
+        if (r.result === 'miss') {
+          flash('miss'); // 提早放開破
+          activateCell(chart[idx]!.key, CELL_COLOR.miss, CELL_PEAK.miss);
+        } else {
+          activateCell(chart[idx]!.key, CELL_COLOR[r.result], CELL_PEAK[r.result]); // 鎖定金/綠脈衝
+          player.playTick('high'); // 尾部完成音(對齊鎖定時機,不綁物理 keyup)
+        }
+        showCombo();
+      }
+    }
+
     // 格子發光淡出
     for (const mesh of cells.values()) {
       const cage = ts - (mesh.userData.flashStart as number);
@@ -348,8 +383,24 @@ export function startHighway(
     activateCell(e.code, CELL_COLOR[kind], CELL_PEAK[kind]);
     if (outcome.kind !== 'extra') flash(outcome.kind);
     showCombo();
+    // 長按頭部命中 → 進「持續中」:持續發光(loop 維持)+ 長條提亮,直到鎖定/破。
+    if (
+      (outcome.kind === 'perfect' || outcome.kind === 'good') &&
+      chart[outcome.noteIndex]!.kind === 'hold'
+    ) {
+      heldNotes.set(outcome.noteIndex, outcome.kind);
+      brightenBody(outcome.noteIndex, true);
+    }
   };
   window.addEventListener('keydown', onKeyDown);
+
+  // 放開:餵 release() 更新判定狀態;破/鎖定的視覺與音效統一在 loop 以 resultAt 轉態偵測(免重複)。
+  const onKeyUp = (e: KeyboardEvent) => {
+    if (!judger || !player.isPlaying) return;
+    if (!(e.code in KEY_LAYOUT)) return;
+    judger.release({ t: player.positionSec, key: e.code, up: true });
+  };
+  window.addEventListener('keyup', onKeyUp);
 
   // ── 控制列自動顯隱:滑鼠靠近底部才淡入;開始前(需按開始鈕)恆顯,不遮遊玩畫面。 ──
   const bar = container.querySelector<HTMLDivElement>('.bt-controls')!;
@@ -399,6 +450,8 @@ export function startHighway(
       (mesh.material as THREE.MeshBasicMaterial).opacity = 0;
     }
     for (const v of visuals) setVisible(v, false); // loop 首幀會重新定位
+    for (const idx of heldNotes.keys()) brightenBody(idx, false); // 還原長條提亮
+    heldNotes.clear();
     showProgress();
   };
 
@@ -500,6 +553,7 @@ export function startHighway(
     cancelAnimationFrame(raf);
     window.removeEventListener('resize', resize);
     window.removeEventListener('keydown', onKeyDown);
+    window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('keydown', onControlKey);
     document.removeEventListener('visibilitychange', onVisibility);
     player.onEnded = null; // 卸載前解除,避免切到預覽後仍觸發本視圖的結束處理
