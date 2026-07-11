@@ -7,7 +7,7 @@ import type { AudioPlayer } from '../audio/player.ts';
 import { glyphOf } from '../compile/mapping.ts';
 import type { Hand, TypingChart } from '../compile/types.ts';
 import { Judger } from '../judge/judge.ts';
-import { DEFAULT_JUDGE_CONFIG, type Grade, type PressOutcome } from '../judge/types.ts';
+import { DEFAULT_JUDGE_CONFIG, type Grade, type JudgeSummary, type PressOutcome } from '../judge/types.ts';
 import { loadSettings, patchSettings, SETTINGS_SPEC, type Settings } from '../settings/settings.ts';
 
 export interface HighwayDeps {
@@ -19,6 +19,18 @@ export interface HighwayDeps {
   readonly coverUrl?: string;
   /** 導覽回呼(非顯示用):結算面板「回選歌」時呼叫,由編排層切回著陸頁(issue 09)。 */
   readonly onExit?: () => void;
+  /**
+   * 完賽回呼(issue 18):歌自然播畢時以本場 summary 呼叫,由編排層寫入成績庫並回傳
+   * 顯示就緒的最佳成績供結算面板呈現(highway 對身分/儲存無感)。回 null = 不顯示(如 DEV 覆寫譜面)。
+   */
+  readonly onComplete?: (summary: JudgeSummary) => ResultsBest | null;
+}
+
+/** 結算面板「最佳」行的顯示就緒資料(調整後準確率等由編排層算好)。 */
+export interface ResultsBest {
+  readonly adjustedAccuracyPct: string; // 如 "67.0%"
+  readonly keyGroupLabel: string; // 達成鍵群顯示名
+  readonly improved: boolean; // 本場是否刷新 → 顯示 🏆
 }
 
 // ── 鍵盤版面:實體按鍵碼 → (欄 0..9 由左到右, 列 0下/1家/2上)。唯一的幾何真實來源。 ──
@@ -469,9 +481,12 @@ export function startHighway(
   const fcEl = container.querySelector<HTMLDivElement>('.bt-fc')!;
   const countsEl = container.querySelector<HTMLDivElement>('.bt-counts')!;
   const maxComboEl = container.querySelector<HTMLDivElement>('.bt-maxcombo')!;
-  const extrasEl = container.querySelector<HTMLDivElement>('.bt-extras')!;
+  const bestEl = container.querySelector<HTMLDivElement>('.bt-best')!;
+  const bestBadgeEl = container.querySelector<HTMLDivElement>('.bt-best-badge')!;
+  // 本場完賽寫入成績庫後的最佳(issue 18);null = 不顯示(DEV 覆寫或無 onComplete)。
+  let lastBest: ResultsBest | null = null;
 
-  // 用 judger.summary() 填結算面板(薄呈現,不重算);評級大字進場 pop。
+  // 用 judger.summary() 填結算面板(薄呈現,不重算);評級大字進場 pop。最佳一行(調整後)由 lastBest 填。
   const fillResults = () => {
     if (!judger) return;
     const s = judger.summary();
@@ -484,7 +499,15 @@ export function startHighway(
       `<span style="color:${FLASH_COLOR.good}">Good ${s.counts.good}</span> · ` +
       `<span style="color:${FLASH_COLOR.miss}">Miss ${s.counts.miss}</span>`;
     maxComboEl.textContent = `最大 combo ${s.maxCombo}`;
-    extrasEl.textContent = s.extras > 0 ? `多餘按鍵 ${s.extras}` : '';
+    // 最佳成績(調整後準確率;歌名/身分無感,只呈現編排層算好的值)。
+    if (lastBest) {
+      bestEl.textContent = `最佳 ${lastBest.adjustedAccuracyPct}(${lastBest.keyGroupLabel})`;
+      bestEl.style.display = '';
+      bestBadgeEl.style.display = lastBest.improved ? '' : 'none';
+    } else {
+      bestEl.style.display = 'none';
+      bestBadgeEl.style.display = 'none';
+    }
     // 重播評級大字放大動畫(移除→reflow→加回)。
     gradeHero.classList.remove('bt-pop');
     void gradeHero.offsetWidth;
@@ -563,16 +586,19 @@ export function startHighway(
   // 回選歌:交給編排層切回著陸頁(deps.onExit 內含 highway cleanup → 停音訊/釋放 GPU)。
   exitBtn.addEventListener('click', () => deps.onExit?.());
 
-  // 歌自然播完:收尾最後一次判定,停迴圈,顯示結束覆蓋層(可重新開始)。
+  // 歌自然播完:收尾最後一次判定,停迴圈,寫入成績,顯示結算覆蓋層(可重玩/回選歌)。
   player.onEnded = () => {
     if (judger) {
       judger.expiry(player.duration);
       showCombo();
+      showGrade();
     }
     positionNotes(player.duration);
     renderer.render(scene, camera);
     stopLoop();
     state = 'ended';
+    // 寫入成績庫(編排層負責身分/儲存)並取回最佳供結算顯示;無 judger/onComplete 則不顯示。
+    lastBest = judger ? (deps.onComplete?.(judger.summary()) ?? null) : null;
     showOverlay('ended');
   };
 
@@ -757,7 +783,10 @@ function buildPauseOverlay(): HTMLElement {
           color:#ff6ec7;margin-top:8px;">⚡ FULL COMBO</div>
         <div class="bt-counts" style="font-size:17px;font-weight:700;margin-top:14px;"></div>
         <div class="bt-maxcombo" style="font-size:14px;color:#8b93a7;margin-top:8px;"></div>
-        <div class="bt-extras" style="font-size:12px;color:#5b6274;margin-top:4px;"></div>
+        <div class="bt-best" style="display:none;font-size:13px;color:#8b93a7;
+          margin-top:14px;border-top:1px solid #2a3040;padding-top:12px;"></div>
+        <div class="bt-best-badge" style="display:none;font-size:14px;font-weight:800;
+          color:#ff6ec7;margin-top:8px;">🏆 新紀錄!</div>
       </div>
       <div class="bt-overlay-hint" style="font-size:13px;color:#8b93a7;margin-bottom:26px;">Space / Esc 繼續</div>
       <div style="display:flex;gap:14px;justify-content:center;">

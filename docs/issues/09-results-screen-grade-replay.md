@@ -9,7 +9,7 @@
 ## Acceptance criteria
 
 - [ ] 打太爛也不會中斷,一定播到整首結束(已由 issue 13 `player.onEnded` 滿足)
-- [ ] 結算顯示評級 + 準確率%(雙主角)、最大 combo、Perfect/Good/Miss 計數、全連徽章(僅 FC 時)、多餘按鍵(小字)
+- [ ] 結算顯示評級 + 準確率%(雙主角)、最大 combo、Perfect/Good/Miss 計數、全連徽章(僅 FC 時)（多餘按鍵計數刻意不顯示——對玩家壓力太大）
 - [ ] 評級門檻明確且由 `summary` 計算(已有測試;判定權重見 docs/adr/0012)
 - [ ] 「重新開始」可用相同譜面與難度立即再來一次(已由 issue 13 `beginFromZero` 滿足)
 - [ ] 結束覆蓋層可「回選歌」回到著陸頁(先 cleanup 停音訊/釋放 GPU 再切頁)

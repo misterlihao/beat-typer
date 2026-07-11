@@ -4,7 +4,9 @@ import { AudioPlayer } from './audio/player.ts';
 import { compileChart } from './compile/compileChart.ts';
 import { buildDifficultyMenu, noteStats } from './compile/difficultyMenu.ts';
 import { parseInfo } from './compile/parseInfo.ts';
-import { startHighway } from './highway/highway.ts';
+import { startHighway, type ResultsBest } from './highway/highway.ts';
+import type { JudgeSummary } from './judge/types.ts';
+import { adjustedAccuracy, recordRun } from './scores/scores.ts';
 import { BsrChartSource, parseBsrCode } from './loader/bsr.ts';
 import { BuiltinChartSource } from './loader/builtin.ts';
 import { ZipChartSource } from './loader/zip.ts';
@@ -202,17 +204,37 @@ async function startSong(
   const diffText = cachedDiffText ?? decoder.decode(await song.readFile(diff.filename));
 
   // 編譯成 TypingChart(純函式,唯一正規化點)。鍵群為跨場偏好,編譯前由設定層讀回(issue 15)。
+  const keyGroup = loadSettings().keyGroup;
   let chart = compileChart({ infoText, difficultyFiles: { [diff.filename]: diffText } }, diff.difficulty, {
-    keyGroup: loadSettings().keyGroup,
+    keyGroup,
   });
 
-  // DEV-only:?occtest 用合成譜面重現「同列上段遮下段」的遮蔽(Y/N、T/B),供 playtest 驗修正。
-  if (import.meta.env.DEV && new URLSearchParams(location.search).has('occtest')) {
+  // DEV-only:?occtest / ?holdtest 用合成譜面覆寫(供 playtest);覆寫時不寫入成績(身分會對不上)。
+  const params = new URLSearchParams(location.search);
+  const devOverride = import.meta.env.DEV && (params.has('occtest') || params.has('holdtest'));
+  if (import.meta.env.DEV && params.has('occtest')) {
     chart = makeOcclusionTestChart();
   }
-  if (import.meta.env.DEV && new URLSearchParams(location.search).has('holdtest')) {
+  if (import.meta.env.DEV && params.has('holdtest')) {
     chart = makeHoldTestChart();
   }
+
+  // 完賽寫入成績(issue 18):以難度檔身分 + 當前鍵群記錄,回傳顯示就緒的最佳。DEV 覆寫譜面不記。
+  const onComplete = devOverride
+    ? undefined
+    : (summary: JudgeSummary): ResultsBest => {
+        const { record, improved } = recordRun(diffText, {
+          rawAccuracy: summary.accuracy,
+          keyGroup,
+          maxCombo: summary.maxCombo,
+          fullCombo: summary.fullCombo,
+        });
+        return {
+          adjustedAccuracyPct: `${(adjustedAccuracy(record.bestRawAccuracy, record.bestKeyGroup) * 100).toFixed(1)}%`,
+          keyGroupLabel: KEY_GROUP_LABELS[record.bestKeyGroup],
+          improved,
+        };
+      };
 
   // 讀音訊 bytes → 交給音訊層解碼(不經 compileChart)。
   const player = new AudioPlayer();
@@ -241,6 +263,7 @@ async function startSong(
     bpm: info.bpm,
     songTimeOffset: info.songTimeOffset,
     onExit: () => showLanding(root), // 結算面板「回選歌」→ 回著陸頁(issue 09)
+    onComplete, // 完賽寫入成績並回傳最佳(issue 18)
   });
 }
 
@@ -253,6 +276,8 @@ interface ViewDeps {
   readonly songTimeOffset: number;
   /** 結算面板「回選歌」的導覽目標(issue 09);由 startSong 接回著陸頁。 */
   readonly onExit?: () => void;
+  /** 完賽寫入成績並回傳最佳(issue 18);DEV 覆寫譜面時為 undefined(不記)。 */
+  readonly onComplete?: (summary: JudgeSummary) => ResultsBest | null;
 }
 
 /** 掛載高速公路 / 表格預覽,附一個切換鈕。共用同一個 player。 */
@@ -288,6 +313,7 @@ function mountViews(root: HTMLElement, chart: TypingChart, player: AudioPlayer, 
           coverUrl: deps.coverUrl,
           // 回選歌:先跑本視圖 cleanup(停音訊/卸事件/釋放 GPU),再由 startSong 切回著陸頁。
           onExit: deps.onExit ? () => { cleanup?.(); deps.onExit!(); } : undefined,
+          onComplete: deps.onComplete, // 完賽寫入成績(issue 18)
         },
         player,
       );

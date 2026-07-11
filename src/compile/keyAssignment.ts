@@ -59,6 +59,14 @@ function buildPool(hand: Hand, keyGroup: KeyGroup): PoolKey[] {
   return pool.filter((p) => (!banks || banks.includes(p.bank)) && (!fingers || fingers.includes(p.finger)));
 }
 
+/**
+ * 某鍵群在單手的可用鍵數(左右對稱,取左手)。鍵池大小的單一真相,
+ * 供 scores 層導出鍵群係數(見 docs/adr/0013),鍵群若增減自動跟著變。
+ */
+export function keyGroupPoolSize(keyGroup: KeyGroup): number {
+  return buildPool('left', keyGroup).length;
+}
+
 // 某手目前佔用中的手指(recent press 或進行中的 hold + 恢復窗)。
 interface Occupancy {
   readonly finger: Finger;

@@ -46,7 +46,7 @@ export interface JudgeSummary {
   readonly maxCombo: number;
   readonly combo: number; // 當前 combo(nowSec 給定時反映到當下)
   readonly counts: { readonly perfect: number; readonly good: number; readonly miss: number };
-  readonly extras: number; // 多餘按鍵數(僅顯示,不罰)
+  readonly extras: number; // 多餘按鍵數(不罰;判定分類用,不對玩家顯示,見 CONTEXT)
   readonly grade: Grade;
   readonly fullCombo: boolean; // 無 Miss
 }
