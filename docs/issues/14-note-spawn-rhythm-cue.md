@@ -37,6 +37,7 @@
 ## 關聯 / Blocked by
 
 - 依賴 issue 06(高速公路、`positionNotes`、`cells`/`activateCell`)。
+- **與 [issue 25](25-approach-charge-fill.md)(抵達前兩拍的目標格充能填滿)同屬「目標格預告」家族**:25 已 grill 定案。**若 25 先落地,本 issue 應避免候選 B(目標格預閃)**——同一格會與 25 的白片雙重預告、互相混淆;改走 A(音符彈入)或 C(遠端 spawn 脈衝)。
 - 可選:提供開關,並用 **issue 12** 持久化(有些玩家嫌花)。
 - 與 **issue 10** 無關但可延伸:既然已有 BPM 時間線,未來可另做「小節線/拍線」節奏格(不同機制,不在本 issue)。
 

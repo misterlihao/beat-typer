@@ -17,6 +17,8 @@ export interface HighwayDeps {
   readonly difficultyLabel: string;
   /** 封面圖 URL;缺漏時資訊卡改用佔位圖。 */
   readonly coverUrl?: string;
+  /** 一拍秒數(60/bpm),供充能預告的提前窗(issue 25);非法(Infinity/NaN/≤0)時 highway 退回固定值。 */
+  readonly beatSec: number;
   /** 導覽回呼(非顯示用):結算面板「回選歌」時呼叫,由編排層切回著陸頁(issue 09)。 */
   readonly onExit?: () => void;
   /**
@@ -103,6 +105,13 @@ const CELL_MS = 260;
 const CELL_COLOR = { perfect: 0xffd23f, good: 0x5ad17a, miss: 0xff5e5e, key: 0x9fb2d0 } as const;
 const CELL_PEAK = { perfect: 0.95, good: 0.85, miss: 0.7, key: 0.32 } as const;
 
+// 按下預告(issue 25):要按下的音符抵達前「一拍」內,目標格中央長出半透白片,pHead=1 剛好填滿,
+// 判定一到即撤、交棒給打擊發光(白→亮色)。純視覺;獨立於發光格,不參與判定。
+const CHARGE_PEAK = 0.35; // 滿格 opacity(半透,明顯低於打擊峰值,交棒時清楚變亮)
+const CHARGE_LEAD_BEATS = 2; // 提前窗 = 幾拍(實跑手感:一拍偏短,兩拍較看得清)
+const CHARGE_FALLBACK_BEAT = 0.5; // bpm 非法(Infinity/NaN/≤0)時假設一拍 ~0.5s(120bpm)
+const CHARGE_Z = PLANE_Z - 0.021; // 略後於發光格(-0.02),字母標籤(-0.01)仍在前、恆可讀
+
 interface NoteVisual {
   readonly index: number; // chart 索引(對應 judge 的 noteIndex)
   readonly note: TypingChart[number];
@@ -136,6 +145,12 @@ export function startHighway(
   let judger: Judger | null = null;
   // 持續中的長按:chart 索引 → 頭部結果(決定持續發光顏色)。頭部命中時加入,鎖定/破時移除。
   const heldNotes = new Map<number, 'perfect' | 'good'>();
+
+  // 充能預告提前窗基準(issue 25):CHARGE_LEAD_BEATS 拍;拍長取 deps.beatSec,非法時退回估計值。
+  // 實際窗每幀再夾住 flightTime。
+  const beatSec =
+    deps.beatSec > 0 && Number.isFinite(deps.beatSec) ? deps.beatSec : CHARGE_FALLBACK_BEAT;
+  const chargeLeadBase = beatSec * CHARGE_LEAD_BEATS;
 
   const container = document.createElement('div');
   // 視窗填滿:height:100dvh 精準等於視窗高(dvh 連手機工具列伸縮也吸收),overflow:hidden 確保不出卷軸。
@@ -188,6 +203,18 @@ export function startHighway(
     mesh.userData.flashStart = performance.now();
     mesh.userData.peak = peak;
   };
+
+  // 按下預告白片(issue 25):每格一片、同形(共用 cellGeo)、純白半透,由中心 scale。
+  // 每幀由 updateCharge 依「該鍵最近一顆未判定、已進提前窗的音符」驅動;判定/長按持續中的音符不驅動。
+  const chargeCells = new Map<string, THREE.Mesh>();
+  for (const [code, { col, row }] of Object.entries(KEY_LAYOUT)) {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false });
+    const mesh = new THREE.Mesh(cellGeo, mat);
+    mesh.position.set(laneX(col), rowY(row), CHARGE_Z);
+    mesh.scale.set(0.0001, 0.0001, 1); // 起始收在中心一點
+    scene.add(mesh);
+    chargeCells.set(code, mesh);
+  }
 
   // 為每顆音符建 body + glyph sprite,一次建齊,以可見性切換(範例譜面音符少)。
   // press:單一方塊;hold:HOLD_SEG 段小方塊,每幀重新沿彎曲走廊定位(分段貼合)。
@@ -355,6 +382,39 @@ export function startHighway(
     }
   };
 
+  // 按下預告驅動(issue 25):每幀為每格挑「該鍵最近一顆、未判定、已進提前窗」的音符,線性長大白片。
+  // 一拍夾住 flightTime;判定過 / 長按持續中(頭已命中)的音符不驅動 → 交棒給打擊發光 / 持續發光。
+  const updateCharge = (now: number) => {
+    const lead = Math.min(chargeLeadBase, flightTime);
+    const byKey = new Map<string, number>(); // key → 最大 p(=最早、最迫近那顆;滿格後夾 1)
+    if (judger) {
+      for (const v of visuals) {
+        if (judger.resultAt(v.index)) continue; // 已判定 → 白片撤,發光接手
+        if (heldNotes.has(v.index)) continue; // 長按頭命中持續中 → 持續發光接手,尾不充能
+        const arrival = v.note.tSec + judgeConfig.offsetSec; // 長按亦用頭部 tSec(尾不充能)
+        const p = (now - (arrival - lead)) / lead; // p=0 窗起、p=1 抵達判定平面
+        if (p < 0) continue; // 提前窗未到
+        const pc = p < 1 ? p : 1; // 滿格後維持滿白停等,直到判定
+        const prev = byKey.get(v.note.key);
+        if (prev === undefined || pc > prev) byKey.set(v.note.key, pc);
+      }
+    }
+    for (const [code, mesh] of chargeCells) {
+      const pc = byKey.get(code);
+      const mat = mesh.material as THREE.MeshBasicMaterial;
+      if (pc === undefined) {
+        if (mat.opacity !== 0) {
+          mat.opacity = 0;
+          mesh.scale.set(0.0001, 0.0001, 1);
+        }
+        continue;
+      }
+      const s = Math.max(0.02, pc); // 由中心線性長大;避免 0 scale 退化
+      mesh.scale.set(s, s, 1);
+      mat.opacity = CHARGE_PEAK * pc; // opacity 線性 0→0.35
+    }
+  };
+
   let raf = 0;
   // 遊戲狀態機(issue 13 + grilling 2026-07-12):idle → countdown → playing ⇄ paused;playing → ended。
   // countdown = 進 playing 前的統一 321 前奏(首玩/續玩/重玩三入口共用);控制鍵與覆蓋層據此。
@@ -404,6 +464,7 @@ export function startHighway(
     }
 
     positionNotes(now);
+    updateCharge(now); // 按下預告白片(issue 25)
     renderer.render(scene, camera);
     raf = requestAnimationFrame(loop);
   };
@@ -565,6 +626,10 @@ export function startHighway(
     for (const mesh of cells.values()) {
       mesh.userData.flashStart = -Infinity;
       (mesh.material as THREE.MeshBasicMaterial).opacity = 0;
+    }
+    for (const mesh of chargeCells.values()) {
+      (mesh.material as THREE.MeshBasicMaterial).opacity = 0; // 白片歸零(loop 首幀重算)
+      mesh.scale.set(0.0001, 0.0001, 1);
     }
     for (const v of visuals) setVisible(v, false); // loop 首幀會重新定位
     for (const idx of heldNotes.keys()) brightenBody(idx, false); // 還原長條提亮
@@ -745,8 +810,9 @@ export function startHighway(
     container.removeEventListener('pointermove', onPointerMove);
     boxGeo.dispose();
     segGeo.dispose();
-    cellGeo.dispose();
+    cellGeo.dispose(); // 發光格與充能白片共用此幾何
     for (const mesh of cells.values()) (mesh.material as THREE.Material).dispose();
+    for (const mesh of chargeCells.values()) (mesh.material as THREE.Material).dispose();
     for (const v of visuals) {
       v.material.dispose(); // press box / hold 各段共用同一材質
       v.sprite.material.map?.dispose();

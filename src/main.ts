@@ -342,6 +342,7 @@ function mountViews(root: HTMLElement, chart: TypingChart, player: AudioPlayer, 
           songName: deps.songName,
           difficultyLabel: deps.difficultyLabel,
           coverUrl: deps.coverUrl,
+          beatSec: 60 / deps.bpm, // 充能預告提前窗=一拍(issue 25);bpm=0→Infinity,highway 退回固定值
           // 回選歌:先跑本視圖 cleanup(停音訊/卸事件/釋放 GPU),再由 startSong 切回著陸頁。
           onExit: deps.onExit ? () => { cleanup?.(); deps.onExit!(); } : undefined,
           onComplete: deps.onComplete, // 完賽寫入成績(issue 18)
