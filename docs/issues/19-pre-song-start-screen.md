@@ -12,7 +12,9 @@
 四個小變動落地(grilling 收斂),其中前兩項改寫了本 issue 的「開始」機制:
 
 - **統一 321 倒數(取代開始鈕)**:新增 `countdown` 狀態,`idle/paused/ended → playing` 三入口(首玩 / 暫停續玩 / 重玩)一律先過 `3→2→1`(各 1 秒、每數字一聲高音 tick、啟動無音)。控制列的 `▶ 開始` 鈕移除——選定難度即自動倒數開跑。倒數可被 Space/Esc / 切背景打斷回暫停;「繼續」時重新倒數並保留原續播意圖(`pendingLaunch`:從 0 或凍結位置)。倒數一開始即 `ctx.resume()`,順帶解掉自動播放手勢風險(已 playtest 驗證自動播放成立)。詞彙見 CONTEXT「倒數」。
-- **著陸畫面「最近 BSR」**:`bootstrap` 成功載入 BSR(進難度畫面)時記入 `beat-typer:recent-bsr`(`{code, songName}`、去重置頂、上限 20);著陸畫面 BSR 輸入下方列出(歌名 + 代號,無封面無分數),點擊即重新下載。新模組 `src/loader/recentBsr.ts`(純函式 `coerceRecentBsr` 可測)。詞彙見 CONTEXT「最近 BSR」。
+- **著陸畫面「最近 BSR」**:`bootstrap` 成功載入 BSR(進難度畫面)時記入 `beat-typer:recent-bsr`(`{code, songName}`、去重置頂、上限 20);著陸畫面 BSR 輸入下方列出(歌名 + 代號,無封面無分數),點擊即重新下載,列尾 `✕` 可手動刪。新模組 `src/loader/recentBsr.ts`(純函式 `coerceRecentBsr` 可測)。詞彙見 CONTEXT「最近 BSR」。
+
+> **待做:混合「最近」清單納入本地 zip(2026-07-12 grill 決,方向已定、實作待排)**。目前「最近」只吃 BSR(存代號、重下載)。本地 zip 沒代號、且瀏覽器無法用路徑重讀磁碟,故本地 zip 的「按一下重開」走 **issue 05 的 FS Access handle + IndexedDB** 同一套機制(`showOpenFilePicker` 拿單檔 handle 存 IDB),Chromium-only、重開需重新授權。屆時「最近」變 BSR 列 + 本地 zip 列的混合清單、點擊行為分流。**順序 = 共用地基 → 本地 zip → 05;且實作時移除拖放統一走 picker(本地 zip 因此 Chromium-only)**。細節、順序與降級見 [issue 05](05-customlevels-folder-difficulty-menu.md) 的「延伸」段。
 - **音樂音量減半**:`player` 內 `source → musicGain(0.5) → destination`(具名常數,非滑桿;tick 仍獨立音量)。與本 issue 無關,同批落地。
 
 > 本 issue 的完整賽前畫面(封面大圖 / 首次無成績處理 / 選歌→賽前→玩→結算 導覽閉環)仍待 grill;倒數只是「進場前奏」,不是選歌前的賽前頁。
