@@ -22,6 +22,11 @@ export interface HighwayDeps {
   /** 導覽回呼(非顯示用):結算面板「回選歌」時呼叫,由編排層切回著陸頁(issue 09)。 */
   readonly onExit?: () => void;
   /**
+   * 自動演奏(?auto):由音訊時鐘驅動,每顆音符抵達判定平面時派合成 keydown/keyup,
+   * 走與真人完全相同的輸入路徑(判定 / 音效 / 回饋皆複用)。純展示;編排層不記成績。
+   */
+  readonly autoPlay?: boolean;
+  /**
    * 完賽回呼(issue 18):歌自然播畢時以本場 summary 呼叫,由編排層寫入成績庫並回傳
    * 顯示就緒的最佳成績供結算面板呈現(highway 對身分/儲存無感)。回 null = 不顯示(如 DEV 覆寫譜面)。
    */
@@ -145,6 +150,11 @@ export function startHighway(
   let judger: Judger | null = null;
   // 持續中的長按:chart 索引 → 頭部結果(決定持續發光顏色)。頭部命中時加入,鎖定/破時移除。
   const heldNotes = new Map<number, 'perfect' | 'good'>();
+
+  // 自動演奏(?auto):音訊時鐘一到就派合成按鍵。記已派過的音符,避免重複派;重玩時清空。
+  const autoPlay = deps.autoPlay ?? false;
+  const autoPressed = new Set<number>(); // 已派 keydown 的音符
+  const autoReleased = new Set<number>(); // 已派 keyup 的長按
 
   // 充能預告提前窗基準(issue 25):CHARGE_LEAD_BEATS 拍;拍長取 deps.beatSec,非法時退回估計值。
   // 實際窗每幀再夾住 flightTime。
@@ -422,6 +432,33 @@ export function startHighway(
     }
   };
 
+  // 自動演奏驅動(?auto):音訊時鐘一抵達音符判定時刻,就派一發合成 KeyboardEvent 走真人輸入路徑
+  // (onKeyDown/onKeyUp → judger.press/release + 全套回饋)。用音訊時鐘而非牆鐘,確保與判定同一基準
+  // (見 CLAUDE.md:牆鐘 setTimeout 排程會全 MISS)。抵達當幀 delta≈0..一幀(≪perfect 窗)→ 穩拿 Perfect。
+  // 長按:頭到 tSec 派 keydown、尾到 holdEndSec 派 keyup(此幀 expiry 已在尾部鎖定,keyup 落空無害)。
+  const dispatchKey = (type: 'keydown' | 'keyup', code: string) => {
+    window.dispatchEvent(new KeyboardEvent(type, { code }));
+  };
+  const autoDrive = (now: number) => {
+    for (const v of visuals) {
+      const arrival = v.note.tSec + judgeConfig.offsetSec;
+      if (!autoPressed.has(v.index)) {
+        if (now >= arrival) {
+          autoPressed.add(v.index);
+          dispatchKey('keydown', v.note.key);
+        }
+      } else if (
+        v.note.kind === 'hold' &&
+        v.note.holdEndSec !== undefined &&
+        !autoReleased.has(v.index) &&
+        now >= v.note.holdEndSec + judgeConfig.offsetSec
+      ) {
+        autoReleased.add(v.index);
+        dispatchKey('keyup', v.note.key);
+      }
+    }
+  };
+
   let raf = 0;
   // 遊戲狀態機(issue 13 + grilling 2026-07-12):idle → countdown → playing ⇄ paused;playing → ended。
   // countdown = 進 playing 前的統一 321 前奏(首玩/續玩/重玩三入口共用);控制鍵與覆蓋層據此。
@@ -472,6 +509,7 @@ export function startHighway(
         cage < CELL_MS ? (mesh.userData.peak as number) * (1 - cage / CELL_MS) : 0;
     }
 
+    if (autoPlay && state === 'playing') autoDrive(now); // ?auto:音訊時鐘驅動的合成按鍵
     positionNotes(now);
     updateCharge(now); // 按下預告白片(issue 25)
     renderer.render(scene, camera);
@@ -644,6 +682,8 @@ export function startHighway(
     for (const v of visuals) setVisible(v, false); // loop 首幀會重新定位
     for (const idx of heldNotes.keys()) brightenBody(idx, false); // 還原長條提亮
     heldNotes.clear();
+    autoPressed.clear(); // 自動演奏歸零:重玩時重新從頭派按鍵
+    autoReleased.clear();
     showProgress();
   };
 

@@ -243,6 +243,8 @@ async function startSong(
   // DEV-only:?occtest / ?holdtest 用合成譜面覆寫(供 playtest);覆寫時不寫入成績(身分會對不上)。
   const params = new URLSearchParams(location.search);
   const devOverride = import.meta.env.DEV && (params.has('occtest') || params.has('holdtest'));
+  // ?auto(或 ?autoplay):自動演奏。純展示,不寫入成績(否則會用完美分數污染最佳紀錄)。
+  const autoPlay = params.has('auto') || params.has('autoplay');
   if (import.meta.env.DEV && params.has('occtest')) {
     chart = makeOcclusionTestChart();
   }
@@ -250,8 +252,8 @@ async function startSong(
     chart = makeHoldTestChart();
   }
 
-  // 完賽寫入成績(issue 18):以難度檔身分 + 當前鍵群記錄,回傳顯示就緒的最佳。DEV 覆寫譜面不記。
-  const onComplete = devOverride
+  // 完賽寫入成績(issue 18):以難度檔身分 + 當前鍵群記錄,回傳顯示就緒的最佳。DEV 覆寫譜面 / 自動演奏不記。
+  const onComplete = devOverride || autoPlay
     ? undefined
     : (summary: JudgeSummary): ResultsBest => {
         const { record, improved } = recordRun(diffText, {
@@ -295,6 +297,7 @@ async function startSong(
     songTimeOffset: info.songTimeOffset,
     onExit: () => showLanding(root), // 結算面板「回選歌」→ 回著陸頁(issue 09)
     onComplete, // 完賽寫入成績並回傳最佳(issue 18)
+    autoPlay, // ?auto:自動演奏(展示用)
   });
 }
 
@@ -307,8 +310,10 @@ interface ViewDeps {
   readonly songTimeOffset: number;
   /** 結算面板「回選歌」的導覽目標(issue 09);由 startSong 接回著陸頁。 */
   readonly onExit?: () => void;
-  /** 完賽寫入成績並回傳最佳(issue 18);DEV 覆寫譜面時為 undefined(不記)。 */
+  /** 完賽寫入成績並回傳最佳(issue 18);DEV 覆寫譜面 / 自動演奏時為 undefined(不記)。 */
   readonly onComplete?: (summary: JudgeSummary) => ResultsBest | null;
+  /** ?auto:自動演奏(展示用),透傳給高速公路由音訊時鐘驅動合成按鍵。 */
+  readonly autoPlay?: boolean;
 }
 
 /** 掛載高速公路 / 表格預覽,附一個切換鈕。共用同一個 player。 */
@@ -346,6 +351,7 @@ function mountViews(root: HTMLElement, chart: TypingChart, player: AudioPlayer, 
           // 回選歌:先跑本視圖 cleanup(停音訊/卸事件/釋放 GPU),再由 startSong 切回著陸頁。
           onExit: deps.onExit ? () => { cleanup?.(); deps.onExit!(); } : undefined,
           onComplete: deps.onComplete, // 完賽寫入成績(issue 18)
+          autoPlay: deps.autoPlay, // ?auto:自動演奏(展示用)
         },
         player,
       );
