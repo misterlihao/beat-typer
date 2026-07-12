@@ -181,6 +181,15 @@ export class Judger {
     return this.results[i] ?? null;
   }
 
+  /**
+   * 是否所有音符皆已解算(無未定案、無持續中長按)。持續中的長按 results[i] 維持 null,
+   * 故按住未鎖定期間為 false。用於高速公路的尾段判斷:為 true 時成績已成定局,
+   * 最後一顆之後只剩沒有音符的尾巴,可安全地讓玩家按鍵直接結束(見 grilling 2026-07-12)。
+   */
+  get allResolved(): boolean {
+    return this.results.every((r) => r !== null);
+  }
+
   /** 目前已解算音符的判定(未解算的不含)。 */
   judgments(): Judgment[] {
     return this.results.filter((j): j is Judgment => j !== null);

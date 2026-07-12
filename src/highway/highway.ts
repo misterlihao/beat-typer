@@ -271,6 +271,13 @@ export function startHighway(
   const flashEl = container.querySelector<HTMLDivElement>('.bt-flash')!;
   const progressEl = container.querySelector<HTMLDivElement>('.bt-progress-fill')!;
   const timeEl = container.querySelector<HTMLDivElement>('.bt-time')!;
+  // 尾段提示(grilling 2026-07-12):最後一顆判定完後淡入,告知可按 Space 直接結束;結束/重玩時撤。
+  const tailHintEl = container.querySelector<HTMLDivElement>('.bt-tailhint')!;
+  let tailReached = false; // 已進尾段(所有音符判定完);驅動提示顯示與 Space 的「結束」語意
+  const setTailHint = (on: boolean) => {
+    tailReached = on;
+    tailHintEl.style.opacity = on ? '1' : '0';
+  };
   let flashStart = -Infinity;
   const flash = (kind: 'perfect' | 'good' | 'miss') => {
     flashEl.textContent = FLASH_LABEL[kind];
@@ -429,6 +436,8 @@ export function startHighway(
         showGrade(); // 自動 Miss 改變判定集合 → 更新即時評級
       }
       showCombo();
+      // 尾段:所有音符判定完 → 淡入「按 Space 結束」提示(此後成績已定,見 grilling 2026-07-12)。
+      if (state === 'playing' && !tailReached && judger.allResolved) setTailHint(true);
     }
     showProgress();
     const age = ts - flashStart; // 回饋閃字淡出
@@ -623,6 +632,7 @@ export function startHighway(
     comboEl.textContent = '';
     comboEl.classList.remove('bt-pop');
     gradeEl.textContent = ''; // 重玩歸零:評級重新累積到門檻才顯
+    setTailHint(false); // 重玩歸零:尾段提示撤、Space 回到「暫停」語意
     for (const mesh of cells.values()) {
       mesh.userData.flashStart = -Infinity;
       (mesh.material as THREE.MeshBasicMaterial).opacity = 0;
@@ -731,30 +741,46 @@ export function startHighway(
   // 回選歌:交給編排層切回著陸頁(deps.onExit 內含 highway cleanup → 停音訊/釋放 GPU)。
   exitBtn.addEventListener('click', () => deps.onExit?.());
 
-  // 歌自然播完:收尾最後一次判定,停迴圈,寫入成績,顯示結算覆蓋層(可重玩/回選歌)。
-  player.onEnded = () => {
+  // 收尾結算(自然播畢 / 尾段提早結束共用):補判、停迴圈、寫入成績、顯示結算覆蓋層(可重玩/回選歌)。
+  // 用 player.positionSec 當末端時間——自然播畢時它已等於 duration,提早結束前先 pause 凍結於當下位置。
+  const finishRun = () => {
+    if (state === 'ended') return; // 防重入(自然 onEnded 與提早結束擇一)
     if (judger) {
-      judger.expiry(player.duration);
+      judger.expiry(player.positionSec);
       showCombo();
       showGrade();
     }
-    positionNotes(player.duration);
+    positionNotes(player.positionSec);
     renderer.render(scene, camera);
     stopLoop();
     state = 'ended';
     revealCursor();
+    setTailHint(false); // 撤尾段提示
     // 寫入成績庫(編排層負責身分/儲存)並取回最佳供結算顯示;無 judger/onComplete 則不顯示。
     lastBest = judger ? (deps.onComplete?.(judger.summary()) ?? null) : null;
     showOverlay('ended');
   };
+  // 歌自然播完(播放位置抵達 duration)→ 收尾結算。
+  player.onEnded = finishRun;
+
+  // 尾段提早結束(grilling 2026-07-12):所有音符已判定完,硬切停止音樂、直接進結算。
+  // 因成績已定,結果與乖乖等音樂播完完全一致,只是省下等待尾巴空白。
+  const endEarly = () => {
+    player.pause(); // 硬切、凍結位置(清掉 onended,不會再觸發自然結束)
+    finishRun();
+  };
 
   // Space / Escape:遊玩→暫停、暫停→繼續(倒數)、倒數→打斷回暫停(非遊戲鍵;preventDefault 防捲動)。
+  // 例外(grilling 2026-07-12):遊玩中一旦進尾段(所有音符判定完),兩鍵改為「直接結束」而非暫停——
+  // 此時成績已定,只剩沒音符的尾巴,兩個原暫停鍵都收斂成結束。中段間奏 allResolved 為 false,不受影響。
   const onControlKey = (e: KeyboardEvent) => {
     if (e.repeat || (e.code !== 'Space' && e.code !== 'Escape')) return;
     if (state !== 'playing' && state !== 'paused' && state !== 'countdown') return;
     e.preventDefault();
-    if (state === 'playing') pauseRun();
-    else if (state === 'paused') resumeRun();
+    if (state === 'playing') {
+      if (tailReached) endEarly(); // 尾段:直接結束
+      else pauseRun();
+    } else if (state === 'paused') resumeRun();
     else cancelCountdownToPause(); // countdown
   };
   window.addEventListener('keydown', onControlKey);
@@ -983,7 +1009,11 @@ function buildFeedback(): HTMLElement {
       font-size:40px;font-weight:800;color:#eef1f7;opacity:0.95;text-shadow:0 2px 8px #000;
       transform-origin:100% 50%;line-height:1;text-align:right;"></div>
     <div class="bt-flash" style="position:absolute;top:12%;left:0;right:0;text-align:center;
-      font-size:44px;font-weight:900;opacity:0;text-shadow:0 2px 10px #000;"></div>`;
+      font-size:44px;font-weight:900;opacity:0;text-shadow:0 2px 10px #000;"></div>
+    <div class="bt-tailhint" style="position:absolute;left:0;right:0;top:42%;text-align:center;
+      font-size:20px;font-weight:700;color:#eef1f7;letter-spacing:1px;text-shadow:0 2px 10px #000;
+      opacity:0;transition:opacity .5s ease;"><span style="background:#12151dcc;
+      border:1px solid #2a3040;border-radius:10px;padding:10px 20px;backdrop-filter:blur(3px);">♪ 沒有音符了 · 按 Space 結束</span></div>`;
   return wrap;
 }
 

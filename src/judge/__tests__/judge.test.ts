@@ -253,3 +253,22 @@ describe('Judger — 增量原語(即時路徑共用)', () => {
     expect(j.currentCombo).toBe(0);
   });
 });
+
+describe('Judger — allResolved(尾段直接結束依據)', () => {
+  it('尚有未判定音符時為 false,全部解算後為 true', () => {
+    const j = new Judger([pnote(1, 'KeyA'), pnote(2, 'KeyB')], cfg);
+    expect(j.allResolved).toBe(false); // 一顆都還沒判
+    j.press(ev(1, 'KeyA'));
+    expect(j.allResolved).toBe(false); // note1 未判定 → 尾段未到
+    j.expiry(2.2); // note1 過窗(2+goodSec)未敲 → 過期 Miss
+    expect(j.allResolved).toBe(true); // 全部解算 → 進尾段
+  });
+
+  it('持續中的長按(頭命中、尾未鎖定)期間為 false,尾部鎖定後才 true', () => {
+    const j = new Judger([hnote(1, 'KeyA', 2)], cfg);
+    j.press(ev(1, 'KeyA')); // 頭命中,進持續中(results 仍 null)
+    expect(j.allResolved).toBe(false);
+    j.expiry(2.0); // 尾部鎖定
+    expect(j.allResolved).toBe(true);
+  });
+});
