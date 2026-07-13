@@ -2,6 +2,7 @@
 // 內建範例 → parseInfo → compileChart → 表格預覽 + 音訊播放。
 import { AudioPlayer } from './audio/player.ts';
 import { compileChart } from './compile/compileChart.ts';
+import { compileLightShow, type LightShow } from './compile/lightShow.ts';
 import { buildDifficultyMenu, noteStats } from './compile/difficultyMenu.ts';
 import { parseInfo } from './compile/parseInfo.ts';
 import { startHighway, type ResultsBest } from './highway/highway.ts';
@@ -236,9 +237,10 @@ async function startSong(
 
   // 編譯成 TypingChart(純函式,唯一正規化點)。鍵群為跨場偏好,編譯前由設定層讀回(issue 15)。
   const keyGroup = loadSettings().keyGroup;
-  let chart = compileChart({ infoText, difficultyFiles: { [diff.filename]: diffText } }, diff.difficulty, {
-    keyGroup,
-  });
+  const rawFiles = { infoText, difficultyFiles: { [diff.filename]: diffText } };
+  let chart = compileChart(rawFiles, diff.difficulty, { keyGroup });
+  // 譜面燈光 → 標準化時間線(issue 24);與音符正交、獨立純函式。無燈光 → 空陣列,highway 退化為呼吸。
+  const lightShow = compileLightShow(rawFiles, diff.difficulty);
 
   // DEV-only:?occtest / ?holdtest 用合成譜面覆寫(供 playtest);覆寫時不寫入成績(身分會對不上)。
   const params = new URLSearchParams(location.search);
@@ -293,6 +295,7 @@ async function startSong(
     songName,
     difficultyLabel,
     coverUrl: currentCoverUrl,
+    lightShow, // 譜面燈光(issue 24);透傳給高速公路的燈光 rig
     bpm: info.bpm,
     songTimeOffset: info.songTimeOffset,
     onExit: () => showLanding(root), // 結算面板「回選歌」→ 回著陸頁(issue 09)
@@ -306,6 +309,8 @@ interface ViewDeps {
   readonly songName: string;
   readonly difficultyLabel: string;
   readonly coverUrl?: string;
+  /** 譜面燈光時間線(issue 24);透傳給高速公路燈光 rig。 */
+  readonly lightShow?: LightShow;
   readonly bpm: number;
   readonly songTimeOffset: number;
   /** 結算面板「回選歌」的導覽目標(issue 09);由 startSong 接回著陸頁。 */
@@ -347,6 +352,7 @@ function mountViews(root: HTMLElement, chart: TypingChart, player: AudioPlayer, 
           songName: deps.songName,
           difficultyLabel: deps.difficultyLabel,
           coverUrl: deps.coverUrl,
+          lightShow: deps.lightShow, // 譜面燈光(issue 24)
           beatSec: 60 / deps.bpm, // 充能預告提前窗=一拍(issue 25);bpm=0→Infinity,highway 退回固定值
           // 回選歌:先跑本視圖 cleanup(停音訊/卸事件/釋放 GPU),再由 startSong 切回著陸頁。
           onExit: deps.onExit ? () => { cleanup?.(); deps.onExit!(); } : undefined,

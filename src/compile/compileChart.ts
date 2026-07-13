@@ -7,6 +7,7 @@
 import { buildBeatToSec, type BpmSegment } from './bpmTimeline.ts';
 import { assignKeys, type UnassignedNote } from './keyAssignment.ts';
 import { parseInfo } from './parseInfo.ts';
+import { detectFormat, readBpmTimeline, type RawDifficultyMeta } from './rawDifficulty.ts';
 import type { CompileConfig, RawMapFiles, TypingChart } from './types.ts';
 
 // 鍵指派可玩性硬底線:同手同指最小間隔(秒)。約 120ms。
@@ -37,18 +38,10 @@ interface RawV3Slider {
   tx?: number; // tail 欄
   ty?: number; // tail 列
 }
-interface RawV3BpmEvent {
-  b?: number; // beat
-  m?: number; // bpm
-}
-interface RawDifficulty {
-  version?: string; // v3:"3.x"
-  _version?: string; // v2:"2.x"
-  colorNotes?: unknown; // v3 音符陣列
+// 格式判別 / 變速換算欄位(version / colorNotes / _notes / bpmEvents)由 rawDifficulty 提供;此處只補音符 / 弧線陣列。
+interface RawDifficulty extends RawDifficultyMeta {
   sliders?: unknown; // v3 弧線陣列
-  bpmEvents?: unknown; // v3 變速事件 [{b,m}]
-  _notes?: unknown; // v2 音符陣列
-  _customData?: { _BPMChanges?: unknown } | null; // v2 `_BPMChanges` 為編輯器顯示用,本體不讀,故不換算(見 normalizeV2)
+  _customData?: { _BPMChanges?: unknown } | null; // v2 `_BPMChanges` 為編輯器顯示用,本體不讀(見 rawDifficulty.readBpmTimeline / docs/adr/0009)
 }
 
 // 格式無關的正規化音符(內部中繼;v2/v3 差異在此收斂後不再外露)。
@@ -70,16 +63,6 @@ interface NormalizedDiff {
   readonly bpmTimeline: BpmSegment[]; // 格式無關的變速時間線(空=等速)
 }
 
-/** 判定難度檔格式:version 字串為主判準,音符陣列存在與否為後備。 */
-function detectFormat(diff: RawDifficulty): 'v2' | 'v3' | null {
-  const version = diff.version ?? diff._version ?? '';
-  if (version.startsWith('3')) return 'v3';
-  if (version.startsWith('2')) return 'v2';
-  if (Array.isArray(diff.colorNotes)) return 'v3';
-  if (Array.isArray(diff._notes)) return 'v2';
-  return null;
-}
-
 /** v2:讀 _notes,濾除炸彈(type 3)與其他非紅藍音符。v2 弧線 v1 不支援。 */
 function normalizeV2(diff: RawDifficulty, filename: string): NormalizedDiff {
   if (!Array.isArray(diff._notes)) {
@@ -95,16 +78,6 @@ function normalizeV2(diff: RawDifficulty, filename: string): NormalizedDiff {
   // 已發佈的 v2 譜其音符 _time 已在「固定 Info BPM 拍空間」——拿 _BPMChanges 去分段積分反而算歪
   // (God-ish TOFU:末音符會多飄 10s、超出音訊)。見 docs/adr/0009。
   return { presses, holds: [], bpmTimeline: [] };
-}
-
-/** v3 變速:讀頂層 `bpmEvents`([{b,m}])。 */
-function readV3Bpm(diff: RawDifficulty): BpmSegment[] {
-  if (!Array.isArray(diff.bpmEvents)) return [];
-  const out: BpmSegment[] = [];
-  for (const e of diff.bpmEvents as RawV3BpmEvent[]) {
-    if (typeof e?.b === 'number' && typeof e?.m === 'number') out.push({ beat: e.b, bpm: e.m });
-  }
-  return out;
 }
 
 /**
@@ -152,7 +125,7 @@ function normalizeV3(diff: RawDifficulty, filename: string): NormalizedDiff {
     if (occupied.has(cell(beat, column, layer, color))) continue; // 由弧線接手
     presses.push({ beat, column, layer, color });
   }
-  return { presses, holds, bpmTimeline: readV3Bpm(diff) };
+  return { presses, holds, bpmTimeline: readBpmTimeline(diff, 'v3') };
 }
 
 /** 依格式把難度檔正規化。唯一的 v2/v3 分流點。 */

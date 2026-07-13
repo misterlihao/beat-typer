@@ -7,6 +7,7 @@ const DEFAULTS: Settings = {
   flightTime: SETTINGS_SPEC.flightTime.default,
   offsetSec: SETTINGS_SPEC.offsetSec.default,
   tickVolume: SETTINGS_SPEC.tickVolume.default,
+  lightIntensity: SETTINGS_SPEC.lightIntensity.default,
   keyGroup: KEY_GROUP_DEFAULT,
 };
 
@@ -34,20 +35,22 @@ describe('coerceSettings — 回退預設', () => {
 
 describe('coerceSettings — 夾範圍', () => {
   it('超上限 → 夾回 max', () => {
-    expect(coerceSettings({ flightTime: 99, offsetSec: 5, tickVolume: 3 })).toEqual({
+    expect(coerceSettings({ flightTime: 99, offsetSec: 5, tickVolume: 3, lightIntensity: 9 })).toEqual({
+      ...DEFAULTS,
       flightTime: SETTINGS_SPEC.flightTime.max,
       offsetSec: SETTINGS_SPEC.offsetSec.max,
       tickVolume: SETTINGS_SPEC.tickVolume.max,
-      keyGroup: KEY_GROUP_DEFAULT,
+      lightIntensity: SETTINGS_SPEC.lightIntensity.max,
     });
   });
 
   it('超下限 → 夾回 min', () => {
-    expect(coerceSettings({ flightTime: -1, offsetSec: -5, tickVolume: -0.2 })).toEqual({
+    expect(coerceSettings({ flightTime: -1, offsetSec: -5, tickVolume: -0.2, lightIntensity: -3 })).toEqual({
+      ...DEFAULTS,
       flightTime: SETTINGS_SPEC.flightTime.min,
       offsetSec: SETTINGS_SPEC.offsetSec.min,
       tickVolume: SETTINGS_SPEC.tickVolume.min,
-      keyGroup: KEY_GROUP_DEFAULT,
+      lightIntensity: SETTINGS_SPEC.lightIntensity.min,
     });
   });
 
@@ -56,6 +59,7 @@ describe('coerceSettings — 夾範圍', () => {
       flightTime: SETTINGS_SPEC.flightTime.max,
       offsetSec: SETTINGS_SPEC.offsetSec.min,
       tickVolume: SETTINGS_SPEC.tickVolume.min,
+      lightIntensity: SETTINGS_SPEC.lightIntensity.max,
       keyGroup: 'all',
     };
     expect(coerceSettings(edge)).toEqual(edge);
@@ -64,7 +68,7 @@ describe('coerceSettings — 夾範圍', () => {
 
 describe('coerceSettings — 合法值原樣', () => {
   it('區間內的值不動', () => {
-    const valid: Settings = { flightTime: 1.5, offsetSec: -0.1, tickVolume: 0.6, keyGroup: 'home' };
+    const valid: Settings = { flightTime: 1.5, offsetSec: -0.1, tickVolume: 0.6, lightIntensity: 0.5, keyGroup: 'home' };
     expect(coerceSettings(valid)).toEqual(valid);
   });
 

@@ -15,6 +15,8 @@ export const SETTINGS_SPEC = {
   offsetSec: { default: 0, min: -0.3, max: 0.3, step: 0.005 },
   // 預設 tick 峰值 ~0.3;最大 100% = 峰值 1.0。
   tickVolume: { default: 0.3, min: 0, max: 1, step: 0.05 },
+  // 燈光強度(issue 24):0=關;預設保守中低值(周邊+淡色已保護讀字,滑桿是逃生口)。
+  lightIntensity: { default: 0.55, min: 0, max: 1, step: 0.05 },
 } as const;
 
 export type SettingKey = keyof typeof SETTINGS_SPEC;

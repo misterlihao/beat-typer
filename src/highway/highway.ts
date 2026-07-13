@@ -4,9 +4,11 @@
 // 判定邏輯不在此重寫(見 src/judge/judge.ts)。
 import * as THREE from 'three';
 import type { AudioPlayer } from '../audio/player.ts';
+import type { LightShow } from '../compile/lightShow.ts';
 import { glyphOf } from '../compile/mapping.ts';
 import type { Hand, TypingChart } from '../compile/types.ts';
 import { Judger } from '../judge/judge.ts';
+import { createLightRig } from './lightRig.ts';
 import { DEFAULT_JUDGE_CONFIG, type Grade, type JudgeSummary, type PressOutcome } from '../judge/types.ts';
 import { loadSettings, patchSettings, SETTINGS_SPEC, type Settings } from '../settings/settings.ts';
 
@@ -17,6 +19,8 @@ export interface HighwayDeps {
   readonly difficultyLabel: string;
   /** 封面圖 URL;缺漏時資訊卡改用佔位圖。 */
   readonly coverUrl?: string;
+  /** 標準化燈光時間線(issue 24);缺 / 空 → 燈光 rig 退化為緩慢呼吸。 */
+  readonly lightShow?: LightShow;
   /** 一拍秒數(60/bpm),供充能預告的提前窗(issue 25);非法(Infinity/NaN/≤0)時 highway 退回固定值。 */
   readonly beatSec: number;
   /** 導覽回呼(非顯示用):結算面板「回選歌」時呼叫,由編排層切回著陸頁(issue 09)。 */
@@ -144,6 +148,7 @@ export function startHighway(
   // 啟動時讀持久偏好當初值(飛行時間 / offset / 音量);缺值由 loadSettings 補預設(issue 12)。
   const settings = loadSettings();
   let flightTime = settings.flightTime;
+  let lightIntensity = settings.lightIntensity; // 燈光強度(issue 24);0=關,滑桿即時調
   // offset 與判定共用同一份 config;滑桿更新 offsetSec,同時影響視覺與判定(PRD)。
   // 刻意不標 JudgeConfig(其 offsetSec 為 readonly);可變物件仍可傳給 Judger。
   const judgeConfig = { ...DEFAULT_JUDGE_CONFIG, offsetSec: settings.offsetSec };
@@ -193,6 +198,12 @@ export function startHighway(
   dir.position.set(0, 8, 6);
   scene.add(dir);
   scene.add(buildTargetGrid());
+
+  // 燈光 rig(issue 24):朝玩家的自發光燈,由 lightShow 驅動;無資料則緩慢呼吸。每幀由 loop 更新。
+  const lightRig = createLightRig(scene, deps.lightShow ?? [], {
+    fog: scene.fog,
+    halfWidth: (COLS / 2) * LANE_SPACING,
+  });
 
   // 每個鍵盤格一片可發光的面(按鍵/打擊反饋)。放在標籤後方,發光時字仍讀得到。
   const cellGeo = new THREE.PlaneGeometry(LANE_SPACING * 0.9, ROW_SPACING * 0.9);
@@ -512,6 +523,7 @@ export function startHighway(
     if (autoPlay && state === 'playing') autoDrive(now); // ?auto:音訊時鐘驅動的合成按鍵
     positionNotes(now);
     updateCharge(now); // 按下預告白片(issue 25)
+    lightRig.update(now, lightIntensity); // 譜面燈光 / 呼吸(issue 24;音訊時鐘驅動,暫停即凍結)
     renderer.render(scene, camera);
     raf = requestAnimationFrame(loop);
   };
@@ -860,6 +872,15 @@ export function startHighway(
     patchSettings({ tickVolume: player.tickVolume });
   });
 
+  // 燈光強度(issue 24):即時套用到 rig(下一幀 update 生效)+ 持久化;0=關。
+  const lightInput = container.querySelector<HTMLInputElement>('.bt-light')!;
+  const lightVal = container.querySelector<HTMLSpanElement>('.bt-light-val')!;
+  lightInput.addEventListener('input', () => {
+    lightIntensity = Number(lightInput.value);
+    lightVal.textContent = `${Math.round(lightIntensity * 100)}%`;
+    patchSettings({ lightIntensity });
+  });
+
   // 進場即自動開跑:選完難度 / 切回本視圖後不需按鈕,直接倒數 → 開始(grilling 2026-07-12)。
   beginFromZero();
 
@@ -874,6 +895,7 @@ export function startHighway(
     document.removeEventListener('visibilitychange', onVisibility);
     player.onEnded = null; // 卸載前解除,避免切到預覽後仍觸發本視圖的結束處理
     container.removeEventListener('pointermove', onPointerMove);
+    lightRig.dispose(); // 燈光 rig:移除發光體、還原背景/fog、釋放貼圖(issue 24)
     boxGeo.dispose();
     segGeo.dispose();
     cellGeo.dispose(); // 發光格與充能白片共用此幾何
@@ -965,6 +987,7 @@ function buildControls(settings: Settings): HTMLElement {
   const f = SETTINGS_SPEC.flightTime;
   const o = SETTINGS_SPEC.offsetSec;
   const v = SETTINGS_SPEC.tickVolume;
+  const li = SETTINGS_SPEC.lightIntensity;
   bar.innerHTML = `
     <label style="display:flex;gap:6px;align-items:center;">飛行時間
       <input type="range" class="bt-flight" min="${f.min}" max="${f.max}" step="${f.step}" value="${settings.flightTime}" />
@@ -977,6 +1000,10 @@ function buildControls(settings: Settings): HTMLElement {
     <label style="display:flex;gap:6px;align-items:center;">按鍵音量
       <input type="range" class="bt-volume" min="${v.min}" max="${v.max}" step="${v.step}" value="${settings.tickVolume}" />
       <span class="bt-volume-val" style="width:40px;">${Math.round(settings.tickVolume * 100)}%</span>
+    </label>
+    <label style="display:flex;gap:6px;align-items:center;">燈光
+      <input type="range" class="bt-light" min="${li.min}" max="${li.max}" step="${li.step}" value="${settings.lightIntensity}" />
+      <span class="bt-light-val" style="width:40px;">${Math.round(settings.lightIntensity * 100)}%</span>
     </label>`;
   return bar;
 }
