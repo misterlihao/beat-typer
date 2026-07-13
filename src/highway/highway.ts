@@ -670,9 +670,10 @@ export function startHighway(
 
   const showOverlay = (mode: 'paused' | 'ended') => {
     overlayTitle.textContent = mode === 'paused' ? '暫停中' : '完成!';
-    // 結束無從繼續,只能重玩/回選歌 → 藏繼續鈕與其提示;並填結算面板。
+    // 結束無從繼續 → 藏繼續鈕;提示兩種都顯示,但語意不同(暫停=繼續、結束=回選歌)。
     resumeBtn.style.display = mode === 'paused' ? '' : 'none';
-    overlayHint.style.display = mode === 'paused' ? '' : 'none';
+    overlayHint.textContent = mode === 'paused' ? 'Space / Esc 繼續' : 'Space / Esc 回選歌';
+    overlayHint.style.display = '';
     if (mode === 'ended') fillResults();
     resultsPanel.style.display = mode === 'ended' ? '' : 'none';
     overlay.style.display = 'grid';
@@ -836,6 +837,12 @@ export function startHighway(
   // 此時成績已定,只剩沒音符的尾巴,兩個原暫停鍵都收斂成結束。中段間奏 allResolved 為 false,不受影響。
   const onControlKey = (e: KeyboardEvent) => {
     if (e.repeat || (e.code !== 'Space' && e.code !== 'Escape')) return;
+    // 結算畫面:Space/Esc 直接回選歌(等同按「回選歌」),讓完賽→下一首更順(2026-07-13)。
+    if (state === 'ended') {
+      e.preventDefault();
+      deps.onExit?.();
+      return;
+    }
     if (state !== 'playing' && state !== 'paused' && state !== 'countdown') return;
     e.preventDefault();
     if (state === 'playing') {
