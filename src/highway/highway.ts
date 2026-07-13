@@ -204,6 +204,7 @@ export function startHighway(
     fog: scene.fog,
     halfWidth: (COLS / 2) * LANE_SPACING,
   });
+  if (import.meta.env.DEV) Reflect.set(window, '__btLights', lightRig); // playtest 燈光數值驗證
 
   // 每個鍵盤格一片可發光的面(按鍵/打擊反饋)。放在標籤後方,發光時字仍讀得到。
   const cellGeo = new THREE.PlaneGeometry(LANE_SPACING * 0.9, ROW_SPACING * 0.9);

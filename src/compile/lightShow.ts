@@ -16,7 +16,7 @@ export interface LightColor {
   readonly b: number;
 }
 
-export type LightAction = 'off' | 'on' | 'flash' | 'fade';
+export type LightAction = 'off' | 'on' | 'flash' | 'fade' | 'transition';
 
 /** 標準化的一筆燈光事件:某時刻某燈組做某動作,帶已解出的顏色與亮度。 */
 export interface LightEvent {
@@ -57,14 +57,22 @@ interface EnvColors {
 const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
 
 /**
- * 解碼經典燈光值(v2 `_value` / v3 `i`):同時編了顏色側與動作。
- * 0=off;1藍/5紅=on;2藍/6紅=flash;3藍/7紅=fade;藍側 1~4、紅側 5~7、其餘(8+)當白;未知動作當 on。
+ * 解碼經典燈光值(v2 `_value` / v3 `i`):同時編了顏色側與動作(BSMG lightshow 格式)。
+ * 動作:0=off;1/5/9=on;2/6/10=flash;3/7/11=fade;4/8/12=transition(由前一筆漸變到本筆);未知當 on。
+ * 顏色:1~4=secondary(右/藍)、5~8=primary(左/紅)、9~12=白。
+ * transition 是「前→本」的補間,亮度/顏色都當作目標值保留,交由 sink 依到前一筆的時距做 lerp。
  */
 function decodeValue(v: number): { action: LightAction; slot: ColorSlot } {
   if (v === 0) return { action: 'off', slot: 'left' }; // off:顏色不重要
   const action: LightAction =
-    v === 2 || v === 6 || v === 10 ? 'flash' : v === 3 || v === 7 || v === 11 ? 'fade' : 'on';
-  const slot: ColorSlot = v >= 1 && v <= 4 ? 'right' : v >= 5 && v <= 7 ? 'left' : 'white';
+    v === 2 || v === 6 || v === 10
+      ? 'flash'
+      : v === 3 || v === 7 || v === 11
+        ? 'fade'
+        : v === 4 || v === 8 || v === 12
+          ? 'transition'
+          : 'on';
+  const slot: ColorSlot = v >= 1 && v <= 4 ? 'right' : v >= 5 && v <= 8 ? 'left' : 'white';
   return { action, slot };
 }
 

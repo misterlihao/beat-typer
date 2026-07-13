@@ -82,7 +82,7 @@ describe('compileLightShow — 格式解析', () => {
 });
 
 describe('compileLightShow — 動作解碼', () => {
-  it('值 → off/on/flash/fade', () => {
+  it('值 → off/on/flash/fade/transition', () => {
     const [off] = compileV2([v2Event(0, 1, 0)]);
     // 0=off 事件仍保留(sink 用它熄燈),brightness=0
     expect(off!.action).toBe('off');
@@ -90,9 +90,25 @@ describe('compileLightShow — 動作解碼', () => {
     expect(compileV2([v2Event(0, 1, 1)])[0]!.action).toBe('on'); // 藍 on
     expect(compileV2([v2Event(0, 1, 2)])[0]!.action).toBe('flash'); // 藍 flash
     expect(compileV2([v2Event(0, 1, 3)])[0]!.action).toBe('fade'); // 藍 fade
+    expect(compileV2([v2Event(0, 1, 4)])[0]!.action).toBe('transition'); // 藍 transition
     expect(compileV2([v2Event(0, 1, 5)])[0]!.action).toBe('on'); // 紅 on
     expect(compileV2([v2Event(0, 1, 6)])[0]!.action).toBe('flash'); // 紅 flash
     expect(compileV2([v2Event(0, 1, 7)])[0]!.action).toBe('fade'); // 紅 fade
+    expect(compileV2([v2Event(0, 1, 8)])[0]!.action).toBe('transition'); // 紅 transition
+    expect(compileV2([v2Event(0, 1, 12)])[0]!.action).toBe('transition'); // 白 transition
+  });
+
+  it('transition 保留亮度(f),不歸零', () => {
+    // 4/8/12 是「漸變到目標」,亮度為目標值,交由 sink lerp;不像 off 歸零。
+    expect(compileV2([v2Event(0, 1, 12, { _floatValue: 0 })])[0]!.brightness).toBe(0); // f=0 → 漸暗目標
+    expect(compileV2([v2Event(0, 1, 12, { _floatValue: 1 })])[0]!.brightness).toBe(1); // f=1 → 漸亮目標
+  });
+
+  it('顏色側:1~4=右/藍、5~8=左/紅、9~12=白', () => {
+    const isRed = (c: { r: number; b: number }) => c.r > c.b;
+    const isBlue = (c: { r: number; b: number }) => c.b > c.r;
+    expect(isBlue(compileV2([v2Event(0, 1, 4)])[0]!.color)).toBe(true); // 4 = 藍 transition
+    expect(isRed(compileV2([v2Event(0, 1, 8)])[0]!.color)).toBe(true); // 8 = 紅 transition(曾誤判為白)
   });
 
   it('brightness = floatValue × Chroma alpha,夾 [0,2]', () => {
