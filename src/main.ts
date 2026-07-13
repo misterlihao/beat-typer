@@ -16,6 +16,7 @@ import type { ChartSource, SongHandle } from './loader/types.ts';
 import { renderPreview } from './preview/renderTable.ts';
 import { KEY_GROUPS, type DifficultyRef, type KeyGroup, type SongInfo, type TypingChart } from './compile/types.ts';
 import { loadSettings, patchSettings } from './settings/settings.ts';
+import { exportBackup, importBackup, type ImportMode } from './backup/backup.ts';
 
 // 難度畫面用的鍵群顯示名(issue 15);鍵群清單本身以 compile 的 KEY_GROUPS 為權威。
 const KEY_GROUP_LABELS: Record<KeyGroup, string> = {
@@ -407,7 +408,27 @@ function showLanding(app: HTMLElement, errorMessage?: string): void {
         </button>
       </div>
       <div id="bt-error" style="min-height:22px;margin-top:18px;color:#e05656;white-space:pre-wrap"></div>
+      <div style="border-top:1px solid #2a303c;margin-top:26px;padding-top:16px">
+        <div style="font-size:12px;color:#8b93a7;margin:0 0 10px">資料備份(換裝置搬移)</div>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+          <button id="bt-export" type="button"
+            style="font-size:13px;padding:7px 14px;cursor:pointer;border:1px solid #4a5163;border-radius:8px;background:#161a24;color:#cdd3df">
+            匯出備份
+          </button>
+          <button id="bt-import-merge" type="button"
+            style="font-size:13px;padding:7px 14px;cursor:pointer;border:1px solid #4a5163;border-radius:8px;background:#161a24;color:#cdd3df">
+            合併匯入
+          </button>
+          <button id="bt-import-replace" type="button"
+            style="font-size:13px;padding:7px 14px;cursor:pointer;border:1px solid #4a5163;border-radius:8px;background:#161a24;color:#cdd3df">
+            覆蓋匯入
+          </button>
+        </div>
+        <div id="bt-backup-msg" style="min-height:20px;margin-top:10px;font-size:13px;white-space:pre-wrap"></div>
+      </div>
       <input id="bt-file" type="file" accept=".zip"
+        style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);border:0" />
+      <input id="bt-backup-file" type="file" accept=".json,application/json"
         style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);border:0" />
     </div>`;
 
@@ -499,6 +520,44 @@ function showLanding(app: HTMLElement, errorMessage?: string): void {
     recentBox.append(label, list);
   };
   renderRecent();
+
+  // 資料備份(issue 26):匯出下載 .json;合併 / 覆蓋匯入各自選檔。覆蓋為破壞性 → 先 confirm。
+  // parse / 認檔 / salvage 全在 backup 純函式;此處只搬檔案文字與呈現結果。
+  const backupMsg = app.querySelector<HTMLElement>('#bt-backup-msg')!;
+  const backupFile = app.querySelector<HTMLInputElement>('#bt-backup-file')!;
+  let importMode: ImportMode = 'merge';
+  app.querySelector<HTMLButtonElement>('#bt-export')!.addEventListener('click', () => {
+    backupMsg.textContent = '';
+    exportBackup();
+  });
+  const beginImport = (mode: ImportMode) => {
+    importMode = mode;
+    backupMsg.textContent = '';
+    backupFile.value = ''; // 清空才能重選同一檔
+    backupFile.click();
+  };
+  app.querySelector<HTMLButtonElement>('#bt-import-merge')!.addEventListener('click', () => beginImport('merge'));
+  app.querySelector<HTMLButtonElement>('#bt-import-replace')!.addEventListener('click', () => beginImport('replace'));
+  backupFile.addEventListener('change', () => {
+    const file = backupFile.files?.[0];
+    if (!file) return;
+    file.text().then((text) => {
+      // 覆蓋為破壞性:執行前二次確認(顯示將被取代的成績筆數)。
+      if (importMode === 'replace') {
+        const n = Object.keys(loadScores().records).length;
+        if (!confirm(`覆蓋匯入會取代現有 ${n} 筆成績與所有設定,確定?`)) return;
+      }
+      const result = importBackup(text, importMode);
+      if (result.ok) {
+        backupMsg.style.color = '#78c2b5';
+        backupMsg.textContent = `已匯入:成績 ${result.scoreCount} 筆、最近 ${result.recentCount} 筆`;
+        renderRecent(); // 最近清單即時反映
+      } else {
+        backupMsg.style.color = '#e05656';
+        backupMsg.textContent = `匯入失敗:${result.reason}`;
+      }
+    });
+  });
 
   // 滑鼠點擊由 <label for> 原生開啟選檔視窗(不靠 programmatic click,跨瀏覽器可靠);
   // 鍵盤(label 不會原生回應 Enter/Space)才走 JS 觸發。
