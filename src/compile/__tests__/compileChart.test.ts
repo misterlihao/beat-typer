@@ -205,6 +205,22 @@ describe('compileChart — v3 忽略非音符陣列', () => {
     expect(chart).toHaveLength(1);
     expect(chart[0]!.kind).toBe('press');
   });
+
+  it('v3 省略 c 欄位視為紅(0/左手)——BS 對預設值採省略慣例(見 overdose Normal 左手消失)', () => {
+    const infoText = infoDat();
+    const diff = JSON.stringify({
+      version: '3.3.0',
+      colorNotes: [{ b: 0, x: 1, d: 1 }, { b: 1, x: 2, c: 1, d: 1 }], // 第一顆缺 c、缺 y
+      bombNotes: [],
+      obstacles: [],
+      sliders: [{ b: 2, x: 0, y: 1, tb: 4, tx: 0, ty: 1, d: 1 }], // 弧線缺 c
+    });
+    const chart = compileChart({ infoText, difficultyFiles: { 'd.dat': diff } }, 'ExpertPlus');
+    expect(chart).toHaveLength(3);
+    expect(chart[0]).toMatchObject({ hand: 'left', kind: 'press' }); // 缺 c → 左手
+    expect(chart[1]).toMatchObject({ hand: 'right', kind: 'press' });
+    expect(chart[2]).toMatchObject({ hand: 'left', kind: 'hold' }); // 弧線缺 c → 左手
+  });
 });
 
 describe('compileChart — 同手疊放收斂(< 1/8 beat → 單一音符)', () => {

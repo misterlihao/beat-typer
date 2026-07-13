@@ -130,7 +130,8 @@ function normalizeV3(diff: RawDifficulty, filename: string): NormalizedDiff {
 
   const holds: NormalizedHold[] = [];
   for (const s of (Array.isArray(diff.sliders) ? diff.sliders : []) as RawV3Slider[]) {
-    const color = s.c;
+    // v3 對預設值採「省略」:缺 c 即紅(0/左手)。缺這行會讓所有左手弧線消失。
+    const color = s.c ?? 0;
     if (color !== 0 && color !== 1) continue;
     holds.push({
       beat: s.b ?? 0,
@@ -154,7 +155,8 @@ function normalizeV3(diff: RawDifficulty, filename: string): NormalizedDiff {
 
   const presses: NormalizedNote[] = [];
   for (const n of diff.colorNotes as RawV3Note[]) {
-    const color = n.c;
+    // v3 對預設值採「省略」:缺 c 即紅(0/左手)。缺這行會讓所有左手音符消失(見 overdose Normal)。
+    const color = n.c ?? 0;
     if (color !== 0 && color !== 1) continue;
     const beat = n.b ?? 0;
     const column = n.x ?? 0;
