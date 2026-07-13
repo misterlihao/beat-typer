@@ -27,6 +27,7 @@ interface RawV3Note {
   x?: number; // 欄
   y?: number; // 列
   c?: number; // 顏色(0紅/1藍)
+  e?: boolean; // 強調(自製譜面生成欄位;真實 Beat Saber 譜無此欄。見 issue 22)
 }
 interface RawV3Slider {
   c?: number; // 顏色
@@ -36,6 +37,7 @@ interface RawV3Slider {
   tb?: number; // tail beat
   tx?: number; // tail 欄
   ty?: number; // tail 列
+  e?: boolean; // 強調(自製譜面生成欄位;見 issue 22)
 }
 interface RawV3BpmEvent {
   b?: number; // beat
@@ -61,6 +63,7 @@ interface NormalizedNote {
   readonly column: number;
   readonly layer: number;
   readonly color: number;
+  readonly emphasized: boolean; // 見 issue 22;真實譜恆 false(來源無強調欄)
 }
 // 正規化弧線:head + tail;之後轉成一顆 hold,並用來濾除重疊的 press。
 interface NormalizedHold extends NormalizedNote {
@@ -72,6 +75,24 @@ interface NormalizedDiff {
   readonly presses: NormalizedNote[];
   readonly holds: NormalizedHold[];
   readonly bpmTimeline: BpmSegment[]; // 格式無關的變速時間線(空=等速)
+}
+
+/**
+ * 從難度檔文字讀出格式無關的 BPM 時間線(v3 bpmEvents / v2 _customData._BPMChanges)。
+ * 供自製譜面(issue 22)沿用基底歌的變速表——讓自製音符的拍落在與原曲一致的秒數上。
+ * 解析失敗 / 無變速 → 空陣列(呼叫端以常數 baseBpm 換算)。純函式。
+ */
+export function extractBpmSegments(diffText: string): BpmSegment[] {
+  let diff: RawDifficulty;
+  try {
+    diff = JSON.parse(diffText) as RawDifficulty;
+  } catch {
+    return [];
+  }
+  const format = detectFormat(diff);
+  if (format === 'v3') return readV3Bpm(diff);
+  if (format === 'v2') return readV2Bpm(diff);
+  return [];
 }
 
 /** 判定難度檔格式:version 字串為主判準,音符陣列存在與否為後備。 */
@@ -93,7 +114,8 @@ function normalizeV2(diff: RawDifficulty, filename: string): NormalizedDiff {
   for (const n of diff._notes as RawV2Note[]) {
     const color = n._type;
     if (color !== 0 && color !== 1) continue; // 只保留紅(0)/藍(1)
-    presses.push({ beat: n._time ?? 0, column: n._lineIndex ?? 0, layer: n._lineLayer ?? 0, color });
+    // v2 無強調欄:恆 false。強調僅自製譜面(v3 生成)才有,見 issue 22。
+    presses.push({ beat: n._time ?? 0, column: n._lineIndex ?? 0, layer: n._lineLayer ?? 0, color, emphasized: false });
   }
   return { presses, holds: [], bpmTimeline: readV2Bpm(diff) };
 }
@@ -138,6 +160,7 @@ function normalizeV3(diff: RawDifficulty, filename: string): NormalizedDiff {
       column: s.x ?? 0,
       layer: s.y ?? 0,
       color,
+      emphasized: s.e === true,
       endBeat: s.tb ?? 0,
       endColumn: s.tx ?? 0,
       endLayer: s.ty ?? 0,
@@ -162,7 +185,7 @@ function normalizeV3(diff: RawDifficulty, filename: string): NormalizedDiff {
     const column = n.x ?? 0;
     const layer = n.y ?? 0;
     if (occupied.has(cell(beat, column, layer, color))) continue; // 由弧線接手
-    presses.push({ beat, column, layer, color });
+    presses.push({ beat, column, layer, color, emphasized: n.e === true });
   }
   return { presses, holds, bpmTimeline: readV3Bpm(diff) };
 }
@@ -203,7 +226,10 @@ function collapseStacks(
       // 錨點制:只跟該群第一顆比,避免鏈式串接。分組在 beat 空間,不受變速影響。
       let j = i + 1;
       while (j < group.length && group[j]!.beat - anchor.beat < STACK_BEAT_THRESHOLD) j++;
-      out.push({ tSec: beatToSec(anchor.beat) + offset, hand, kind: 'press' });
+      // 強調取群內聯集:群內任一顆強調 → 收斂後的音符即強調(強調=更響亮,取聯集最直覺)。見 issue 22。
+      let emphasized = false;
+      for (let k = i; k < j; k++) emphasized ||= group[k]!.emphasized;
+      out.push({ tSec: beatToSec(anchor.beat) + offset, hand, kind: 'press', emphasized });
       i = j;
     }
   }
@@ -253,9 +279,9 @@ export function compileChart(
     const holdEndSec = beatToSec(h.endBeat) + offset;
     // 穩健性:壞資料(尾部不晚於頭部)退化成一般 press,免 3D 畫出反向長條。見 docs/adr/0010。
     if (holdEndSec <= tSec) {
-      unassigned.push({ tSec, hand: handOf(h.color), kind: 'press' });
+      unassigned.push({ tSec, hand: handOf(h.color), kind: 'press', emphasized: h.emphasized });
     } else {
-      unassigned.push({ tSec, hand: handOf(h.color), kind: 'hold', holdEndSec });
+      unassigned.push({ tSec, hand: handOf(h.color), kind: 'hold', emphasized: h.emphasized, holdEndSec });
     }
   }
 

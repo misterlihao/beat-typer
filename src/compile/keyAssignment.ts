@@ -8,11 +8,12 @@
 import { innerKeyFor, keyFor } from './mapping.ts';
 import type { Bank, Finger, Hand, KeyGroup, Note } from './types.ts';
 
-/** 待指派音符:已知時間、手、種類,尚未決定手指/排/鍵。 */
+/** 待指派音符:已知時間、手、種類、是否強調,尚未決定手指/排/鍵。 */
 export interface UnassignedNote {
   readonly tSec: number;
   readonly hand: Hand;
   readonly kind: 'press' | 'hold';
+  readonly emphasized: boolean;
   readonly holdEndSec?: number;
 }
 
@@ -123,6 +124,7 @@ export function assignKeys(
       tSec: n.tSec,
       key: best.key,
       kind: n.kind,
+      emphasized: n.emphasized,
       ...(n.holdEndSec !== undefined ? { holdEndSec: n.holdEndSec } : {}),
       hand,
       finger: best.finger,

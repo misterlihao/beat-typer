@@ -11,7 +11,7 @@ const RIGHT_KEYS = new Set(['KeyU','KeyI','KeyO','KeyP','KeyJ','KeyK','KeyL','Se
 
 /** 產生一串同手 press,自 startT 起每隔 dt 秒一顆。 */
 function stream(hand: Hand, count: number, dt: number, startT = 0): UnassignedNote[] {
-  return Array.from({ length: count }, (_, i) => ({ tSec: startT + i * dt, hand, kind: 'press' as const }));
+  return Array.from({ length: count }, (_, i) => ({ tSec: startT + i * dt, hand, kind: 'press' as const, emphasized: false }));
 }
 
 describe('鍵指派 — 手與鍵池', () => {
@@ -41,8 +41,8 @@ describe('鍵指派 — 可玩性硬底線', () => {
   });
 
   it('hold 佔用其手指直到結束 + gap:期間的同手 press 換指', () => {
-    const hold: UnassignedNote = { tSec: 0, hand: 'left', kind: 'hold', holdEndSec: 1.0 };
-    const press: UnassignedNote = { tSec: 0.5, hand: 'left', kind: 'press' };
+    const hold: UnassignedNote = { tSec: 0, hand: 'left', kind: 'hold', emphasized: false, holdEndSec: 1.0 };
+    const press: UnassignedNote = { tSec: 0.5, hand: 'left', kind: 'press', emphasized: false };
     const [h, p] = assignKeys([hold, press], GAP);
     expect(h!.finger).toBe('index'); // 第一顆左手 → 家排食指 KeyF
     expect(p!.finger).not.toBe('index'); // hold 期間食指被佔 → 換指

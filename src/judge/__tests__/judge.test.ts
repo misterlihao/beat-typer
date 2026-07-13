@@ -6,13 +6,13 @@ import { DEFAULT_JUDGE_CONFIG, type InputEvent, type JudgeConfig } from '../type
 
 // hand/finger/bank 對判定無關,填佔位值。
 function pnote(tSec: number, key: string, kind: Note['kind'] = 'press'): Note {
-  return { tSec, key, kind, hand: 'left', finger: 'index', bank: 'home' };
+  return { tSec, key, kind, emphasized: false, hand: 'left', finger: 'index', bank: 'home' };
 }
 const ev = (t: number, key: string): InputEvent => ({ t, key });
 const up = (t: number, key: string): InputEvent => ({ t, key, up: true });
 // 長按音符:頭部 tSec、尾部 holdEndSec。
 function hnote(tSec: number, key: string, holdEndSec: number): Note {
-  return { tSec, key, kind: 'hold', holdEndSec, hand: 'left', finger: 'index', bank: 'home' };
+  return { tSec, key, kind: 'hold', emphasized: false, holdEndSec, hand: 'left', finger: 'index', bank: 'home' };
 }
 const cfg: JudgeConfig = DEFAULT_JUDGE_CONFIG; // perfect 0.045、good 0.09、offset 0
 

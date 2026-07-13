@@ -19,6 +19,11 @@ export interface Note {
   /** 實體按鍵碼(KeyboardEvent.code),如 "KeyF"、"Semicolon"。 */
   readonly key: string;
   readonly kind: NoteKind;
+  /**
+   * 強調:與 press/hold 正交的純表現旗標(issue 22 自製譜面)。true = 高速公路常駐自發光 +
+   * 打擊時疊華麗音層。不影響判定 / combo / 成績。真實 Beat Saber 譜恆為 false(來源無此欄)。
+   */
+  readonly emphasized: boolean;
   /** 僅 hold:長按結束秒數。 */
   readonly holdEndSec?: number;
   // ── 渲染中繼:hand 由顏色決定;finger/bank 為被指派鍵的屬性(高速公路實際靠 key 定道)。──

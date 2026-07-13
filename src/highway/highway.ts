@@ -27,6 +27,16 @@ export interface HighwayDeps {
    */
   readonly autoPlay?: boolean;
   /**
+   * 免倒數直接開跑(issue 22 自製譜面試玩):跳過 321 倒數,掛載即從 startSec 播。
+   * 需已有使用者手勢(黏性啟用)以解鎖 AudioContext——由「按某一行」的點擊提供。
+   */
+  readonly autoStart?: boolean;
+  /**
+   * 起始播放秒數(issue 22 自製譜面中段起播):首玩/重玩從此秒起播,供作者只重播正在改的段落。
+   * 預設 0(從頭)。傳入的 chart 應已濾成 tSec≥startSec(避免前段被判 miss);highway 只負責音訊從此起播。
+   */
+  readonly startSec?: number;
+  /**
    * 完賽回呼(issue 18):歌自然播畢時以本場 summary 呼叫,由編排層寫入成績庫並回傳
    * 顯示就緒的最佳成績供結算面板呈現(highway 對身分/儲存無感)。回 null = 不顯示(如 DEV 覆寫譜面)。
    */
@@ -79,6 +89,9 @@ const liftAt = (z: number): number => {
   return LIFT_MAX * t * t;
 };
 const HOLD_SEG = 16; // hold body 沿曲線的分段數(分段貼合)
+// 強調音符(issue 22):一律黃色(不分手),對比明顯、一眼可辨。手仍由欄位置傳達。
+// 不自發光——發光會讓面上的鍵字 glyph 難辨(見 grill 2026-07-13)。
+const EMPHASIS_COLOR = 0xffd633;
 
 // combo 多階段:門檻 20/50/100 換色,<20 為白(combo≥2 才顯示)。跨階瞬間數字 pop 放大。
 const COMBO_TIERS: readonly { min: number; color: string }[] = [
@@ -153,6 +166,8 @@ export function startHighway(
 
   // 自動演奏(?auto):音訊時鐘一到就派合成按鍵。記已派過的音符,避免重複派;重玩時清空。
   const autoPlay = deps.autoPlay ?? false;
+  // 免倒數直接開跑(issue 22 自製譜面試玩:按行即從該拍自動演奏,不等 321)。
+  const autoStart = deps.autoStart ?? false;
   const autoPressed = new Set<number>(); // 已派 keydown 的音符
   const autoReleased = new Set<number>(); // 已派 keyup 的長按
 
@@ -235,6 +250,8 @@ export function startHighway(
     const layout = KEY_LAYOUT[note.key];
     if (!layout) return; // 未知鍵碼,略過(理論上不會發生)
     const mat = new THREE.MeshLambertMaterial({ color: HAND_COLOR[note.hand] });
+    // 強調音符(issue 22):整顆黃色(不發光、不放大),飛行途中就一眼看出「這顆重要」,鍵字仍清楚。
+    if (note.emphasized) mat.color.setHex(EMPHASIS_COLOR);
     const sprite = makeGlyphSprite(glyphOf(note.key), '#ffffff', 0.85, true);
     sprite.visible = false;
     const base = { index, note, col: layout.col, row: layout.row, sprite, material: mat };
@@ -532,7 +549,9 @@ export function startHighway(
     if (!(e.code in KEY_LAYOUT)) return;
     const outcome: PressOutcome = judger.press({ t: player.positionSec, key: e.code });
     // 按鍵音:Perfect 清脆高音、其他稍低沉以利區分。press 為同步,延遲無感、仍即時。
-    player.playTick(outcome.kind === 'perfect' ? 'high' : 'low');
+    // 打到的是強調音符(issue 22)→ 額外疊一層華麗琶音;底層判定音高不變、聽辨不受影響。
+    const hitEmphasized = outcome.kind !== 'extra' && chart[outcome.noteIndex]?.emphasized === true;
+    player.playTick(outcome.kind === 'perfect' ? 'high' : 'low', hitEmphasized);
     // 按鍵反饋:按下的格必亮;顏色依判定(打擊反饋),多餘按鍵用中性色。
     const kind = outcome.kind === 'extra' ? 'key' : outcome.kind;
     activateCell(e.code, CELL_COLOR[kind], CELL_PEAK[kind]);
@@ -692,7 +711,7 @@ export function startHighway(
   // 倒數被打斷回暫停時保留此意圖,「繼續」時重跑同一種倒數→續播,不必處理「暫停一個尚未開始的東西」。
   const freshLaunch = async () => {
     state = 'playing';
-    await player.play(0);
+    await player.play(deps.startSec ?? 0); // 中段起播(issue 22):自製譜面可從指定秒起播
     startLoop();
     setCursorHidden(true); // 開跑即藏游標(移動才喚回)
     clearTimeout(cursorIdleTimer);
@@ -752,13 +771,15 @@ export function startHighway(
   };
 
   // 全新一場(首玩 / 重玩 / 重新開始):重建 Judger、清狀態,經倒數後從 0 播。
+  // autoStart(自製譜面試玩):跳過 321 倒數,直接開跑(此時多半也 autoPlay)。
   const beginFromZero = () => {
     judger = new Judger(chart, judgeConfig);
     resetVisualState();
     positionNotes(-Infinity); // 靜態畫面(僅格線)墊在倒數覆蓋層後
     renderer.render(scene, camera);
     pendingLaunch = freshLaunch;
-    runCountdown();
+    if (autoStart) void freshLaunch();
+    else runCountdown();
   };
   const pauseRun = () => {
     if (state !== 'playing') return;

@@ -115,8 +115,10 @@ export class AudioPlayer {
    * 合成一個短「tick」按鍵音,供玩家對準時機。複用主 AudioContext(播放時已 resume)。
    * 三角波快速下滑 + ~45ms 指數衰減,不載外部音檔。
    * @param pitch 'high' = 清脆高音(Perfect);'low' = 稍低沉(其他判定),以利區分。
+   * @param fancy 強調音符(issue 22):在底層 tick 之上疊一層「華麗」琶音閃光——不是變大聲,
+   *   是變豐富。底層判定音高不動,故 Perfect/Good 聽辨完全不受影響。
    */
-  playTick(pitch: 'high' | 'low' = 'high'): void {
+  playTick(pitch: 'high' | 'low' = 'high', fancy = false): void {
     if (!this.ctx || this.ctx.state !== 'running') return; // 僅在音訊已啟動時發聲
     const peak = AudioPlayer.MAX_TICK_GAIN * Math.max(0, Math.min(1, this.tickVolume));
     if (peak < 0.001) return; // 靜音:不發聲(exponentialRamp 也不能收斂到 0)
@@ -132,8 +134,29 @@ export class AudioPlayer {
     gain.gain.exponentialRampToValueAtTime(peak, t + 0.002); // 快速起音 = 清脆
     gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
     osc.connect(gain).connect(ctx.destination);
+    // 強調音符(issue 22):同一顆 tick 也送進 echo 匯流排,長出幾聲迴音——聲音本體與普通打擊一致,只多了迴盪。
+    if (fancy) gain.connect(this.ensureEchoBus());
     osc.start(t);
     osc.stop(t + 0.06);
+  }
+
+  // echo 匯流排(建一次、重用):延遲 + 回授(每次遞減),把送進來的 tick 迴盪數聲後自然消失。
+  // 不含乾聲(乾聲是 tick 直連 destination),也不含混響——僅純迴音(見 grill 2026-07-13)。
+  private echoBus: GainNode | null = null;
+  private ensureEchoBus(): GainNode {
+    if (this.echoBus) return this.echoBus;
+    const ctx = this.ctx!;
+    const input = ctx.createGain();
+    input.gain.value = 0.55; // 迴音略低於原音
+    const delay = ctx.createDelay(1.0);
+    delay.delayTime.value = 0.16;
+    const feedback = ctx.createGain();
+    feedback.gain.value = 0.42; // 每次迴授遞減,約 4~5 聲後聽不見
+    input.connect(delay);
+    delay.connect(feedback).connect(delay);
+    delay.connect(ctx.destination);
+    this.echoBus = input;
+    return input;
   }
 
   private stopSource(): void {
