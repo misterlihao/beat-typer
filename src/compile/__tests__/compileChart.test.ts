@@ -368,9 +368,10 @@ describe('compileChart — 變速(BPM change)beat→秒積分', () => {
     expect(chart[0]!.holdEndSec).toBeCloseTo(4.0, 10);
   });
 
-  it('v2 _customData._BPMChanges 同一積分模型:[{4,60}]@120 → beat6=4.0s', () => {
+  it('v2 _customData._BPMChanges 忽略(本體不讀,等速):[{4,60}]@120 → beat6=3.0s', () => {
+    // MMA2 等編輯器的顯示用欄位;已發佈 v2 譜的 _time 已在固定 Info BPM 空間,積分會算歪。見 docs/adr/0009。
     const chart = compileV2Bpm([note(6, 0, 1, 0)], [{ _time: 4, _BPM: 60 }]);
-    expect(chart[0]!.tSec).toBeCloseTo(4.0, 10);
+    expect(chart[0]!.tSec).toBeCloseTo(3.0, 10); // 全程 120:6×0.5
   });
 
   it('空 bpmEvents → 常數回退(beat3=1.5s @120)', () => {

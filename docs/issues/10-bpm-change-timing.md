@@ -1,7 +1,8 @@
 # 10 — 帶 BPM change 的譜面(變速)時間換算
 
 > 來源:使用者需求 + 參考譜面。
-> **狀態:設計已收斂(2026-07-11 grill-with-docs)。決策見 docs/adr/0009 與 CONTEXT「變速」。scope 由 v3-only 擴為 v2+v3(見下)。**
+> **狀態:設計已收斂(2026-07-11)。決策見 docs/adr/0009 與 CONTEXT「變速」。**
+> **2026-07-13 修正:v2 `_customData._BPMChanges` 撤出 scope——本體不讀,積分會把落點算歪(`God-ish TOFU` 末音符飄 10s)。改為 v2 一律等速,只有 v3 `bpmEvents` 積分。詳見 docs/adr/0009「修正」。下方 v2 相關 AC 已作廢。**
 
 ## 問題
 

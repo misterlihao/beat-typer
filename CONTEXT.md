@@ -17,7 +17,7 @@ _Avoid_: layer, lineLayer
 _Avoid_: type, cutDirection(切法方向本作不使用)
 
 **變速 (BPM change)**:
-曲中 BPM 的分段變化,決定 beat→秒的換算。以「BPM 時間線」表示——排序的 `[{beat, bpm}]`,區段 `[bᵢ, bᵢ₊₁)` 以該段 BPM 播放。來源:v3 `bpmEvents` / v2 `_customData._BPMChanges`;二者凌駕 Info.dat 的 BPM(後者僅為顯示值與基準)。見 docs/adr/0009。
+曲中 BPM 的分段變化,決定 beat→秒的換算。以「BPM 時間線」表示——排序的 `[{beat, bpm}]`,區段 `[bᵢ, bᵢ₊₁)` 以該段 BPM 播放,凌駕 Info.dat 的 BPM(後者僅為顯示值與基準)。來源**僅** v3 `bpmEvents`(本體會吃)。v2 `_customData._BPMChanges` 是編輯器顯示用、本體不讀,**不參與換算**(v2 一律等速;譜的 `_time` 已在固定 Info BPM 空間)。見 docs/adr/0009。
 _Avoid_: tempo, bpmEvents(對外一律講「變速 / BPM 時間線」)
 
 ## 映射(核心概念)

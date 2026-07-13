@@ -1,15 +1,23 @@
 # beat→秒改為分段 BPM 積分;難度檔的 BPM 時間線凌駕 Info.dat BPM
 
-**Status:** accepted
+**Status:** accepted(2026-07-13 修正:v2 `_customData._BPMChanges` 改為**不換算**——見下方「修正」)
 
-`compileChart` 的 beat→秒換算從「單一 `60/info.bpm` 平乘」改為**分段常數 BPM 的積分** `beatToSec(beat)`。BPM 時間線從**難度檔**讀出:v3 `bpmEvents`、v2 `_customData._BPMChanges`,兩者正規化成同一份排序 `[{beat, bpm}]`。Info.dat `_beatsPerMinute` 只當「首事件之前」與「無時間線」的基準,**不凌駕**時間線。
+`compileChart` 的 beat→秒換算從「單一 `60/info.bpm` 平乘」改為**分段常數 BPM 的積分** `beatToSec(beat)`。BPM 時間線從**難度檔**讀出:僅 v3 `bpmEvents`,正規化成排序 `[{beat, bpm}]`。Info.dat `_beatsPerMinute` 只當「首事件之前」與「無時間線」的基準,**不凌駕**時間線。
+
+## 修正(2026-07-13):v2 `_customData._BPMChanges` 不參與換算
+
+本 ADR 原把 v2 `_customData._BPMChanges` 與 v3 `bpmEvents` 當**同一套**時間模型一起積分。這是錯的,已改為 v2 一律等速。
+
+- **根據**:`_BPMChanges` 是 MMA2 等**編輯器**的顯示用擴充,**Beat Saber 本體不讀**;本體對 v2 只用單一 Info BPM 播放。已發佈的 v2 譜(能在本體正常遊玩)其音符 `_time` 必然已在「固定 Info BPM 拍空間」——再拿 `_BPMChanges` 去分段積分等於重複套用,把落點算歪。
+- **鐵證**:`God-ish (TOFU)`(v2、bsr 2e5ca、變速 142→103→142),音訊 205.4s。積分模型把末音符推到 **215.8s**(超出音訊 10s,後段音符全亂);忽略 `_BPMChanges`、等速 142 則為 **201.6s**,吻合。此即原 issue 10「Idol 末音符 216.1s vs 音訊 214s ~2s 超出」同一 bug 的放大版。
+- v3 `bpmEvents` 是官方欄位、本體會吃,維持積分不變。v2≠v3:兩者不再共用時間線來源。
 
 ## 為何記錄
 
 兩點違反直覺、且不可輕易反轉(動了核心時間模型):
 
 1. **忽略 Info.dat 的 BPM**:參考譜 Masquerade 的 Info `_beatsPerMinute=128`,但 `bpmEvents` 從 `120` 起。我們以難度檔時間線為準(該段用 120),Info BPM 只是**顯示值**。未來讀者會問「為何不用 Info 的 BPM」。
-2. **支援 v2 非官方欄位 `_customData._BPMChanges`**:這是編輯器(MMA2 等)的擴充,非官方 schema。我們刻意納入,因為真實譜庫大量使用它,且其時間模型與 v3 `bpmEvents` 相同(分段常數積分),邊際成本小。
+2. ~~**支援 v2 非官方欄位 `_customData._BPMChanges`**~~:**已於 2026-07-13 撤銷**(見上方「修正」)。當初誤以為其時間模型與 v3 `bpmEvents` 相同;實際上本體不讀它,積分會把落點算歪。v2 一律等速。
 
 ## 關鍵推理
 

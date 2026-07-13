@@ -41,10 +41,6 @@ interface RawV3BpmEvent {
   b?: number; // beat
   m?: number; // bpm
 }
-interface RawV2BpmChange {
-  _time?: number; // beat
-  _BPM?: number; // bpm
-}
 interface RawDifficulty {
   version?: string; // v3:"3.x"
   _version?: string; // v2:"2.x"
@@ -52,7 +48,7 @@ interface RawDifficulty {
   sliders?: unknown; // v3 弧線陣列
   bpmEvents?: unknown; // v3 變速事件 [{b,m}]
   _notes?: unknown; // v2 音符陣列
-  _customData?: { _BPMChanges?: unknown } | null; // v2 變速在此 [{_time,_BPM}]
+  _customData?: { _BPMChanges?: unknown } | null; // v2 `_BPMChanges` 為編輯器顯示用,本體不讀,故不換算(見 normalizeV2)
 }
 
 // 格式無關的正規化音符(內部中繼;v2/v3 差異在此收斂後不再外露)。
@@ -95,18 +91,10 @@ function normalizeV2(diff: RawDifficulty, filename: string): NormalizedDiff {
     if (color !== 0 && color !== 1) continue; // 只保留紅(0)/藍(1)
     presses.push({ beat: n._time ?? 0, column: n._lineIndex ?? 0, layer: n._lineLayer ?? 0, color });
   }
-  return { presses, holds: [], bpmTimeline: readV2Bpm(diff) };
-}
-
-/** v2 變速:讀 `_customData._BPMChanges`([{_time,_BPM}])。非官方欄位,見 docs/adr/0009。 */
-function readV2Bpm(diff: RawDifficulty): BpmSegment[] {
-  const raw = diff._customData?._BPMChanges;
-  if (!Array.isArray(raw)) return [];
-  const out: BpmSegment[] = [];
-  for (const c of raw as RawV2BpmChange[]) {
-    if (typeof c?._time === 'number' && typeof c?._BPM === 'number') out.push({ beat: c._time, bpm: c._BPM });
-  }
-  return out;
+  // v2 一律等速:`_customData._BPMChanges` 是 MMA2 等編輯器的顯示用擴充,Beat Saber 本體不讀。
+  // 已發佈的 v2 譜其音符 _time 已在「固定 Info BPM 拍空間」——拿 _BPMChanges 去分段積分反而算歪
+  // (God-ish TOFU:末音符會多飄 10s、超出音訊)。見 docs/adr/0009。
+  return { presses, holds: [], bpmTimeline: [] };
 }
 
 /** v3 變速:讀頂層 `bpmEvents`([{b,m}])。 */
