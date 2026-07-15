@@ -20,8 +20,8 @@
 | loader | src/loader/ | UC | 讀測試摘要判覆蓋 | docs/quality/loader-tests.md | 728ceca | ok |
 | difficulty-menu | src/compile/difficultyMenu.ts, src/compile/rawDifficulty.ts | US | 測試綠燈 | — | 0561135 | ok |
 | settings | src/settings/settings.ts | US | 測試綠燈 | — | 0561135 | ok |
-| audio | src/audio/player.ts | US | e2e / playtest | — | — | 從未審(待 playtest) |
-| preview | src/preview/renderTable.ts | US | e2e / playtest | — | — | 從未審(待 playtest) |
+| audio | src/audio/player.ts | US | e2e / playtest | — | 1db641a | ok |
+| preview | src/preview/renderTable.ts | US | e2e / playtest | — | 1db641a | ok |
 | highway | src/highway/ | IC | 細讀 code | —（IC 不產） | — | 從未審 |
 | app-shell | src/main.ts | IC | 細讀 code | —（IC 不產） | — | 從未審 |
 
