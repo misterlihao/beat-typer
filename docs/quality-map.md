@@ -8,9 +8,9 @@
 
 | 模組 | 路徑 | 格 | 監管方式 | 濃縮件 | reviewed-at | 狀態 |
 |---|---|---|---|---|---|---|
-| key-assignment | src/compile/keyAssignment.ts | IC | 細讀 code | —（IC 不產） | — | 從未審 |
-| compile-chart | src/compile/compileChart.ts, src/compile/types.ts | IC | 細讀 code | —（IC 不產） | — | 從未審 |
-| judge | src/judge/judge.ts, src/judge/types.ts | IC | 細讀 code | —（IC 不產） | — | 從未審 |
+| key-assignment | src/compile/keyAssignment.ts | IC | 細讀 code | —（IC 不產） | d47d58b | ok |
+| compile-chart | src/compile/compileChart.ts, src/compile/types.ts | IC | 細讀 code | —（IC 不產） | d47d58b | ok |
+| judge | src/judge/judge.ts, src/judge/types.ts | IC | 細讀 code | —（IC 不產） | d47d58b | ok |
 | bpm-timeline | src/compile/bpmTimeline.ts | IS | 讀契約 | docs/quality/bpm-timeline.md | b9e39e9 | ok |
 | parse-info | src/compile/parseInfo.ts | IS | 讀契約 | docs/quality/parse-info.md | b9e39e9 | ok |
 | mapping | src/compile/mapping.ts | IS | 讀契約 | docs/quality/mapping.md | b9e39e9 | ok |
