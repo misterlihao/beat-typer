@@ -11,11 +11,11 @@
 | key-assignment | src/compile/keyAssignment.ts | IC | 細讀 code | —（IC 不產） | — | 從未審 |
 | compile-chart | src/compile/compileChart.ts, src/compile/types.ts | IC | 細讀 code | —（IC 不產） | — | 從未審 |
 | judge | src/judge/judge.ts, src/judge/types.ts | IC | 細讀 code | —（IC 不產） | — | 從未審 |
-| bpm-timeline | src/compile/bpmTimeline.ts | IS | 讀契約 | docs/quality/bpm-timeline.md | — | 從未審 |
-| parse-info | src/compile/parseInfo.ts | IS | 讀契約 | docs/quality/parse-info.md | — | 從未審 |
-| mapping | src/compile/mapping.ts | IS | 讀契約 | docs/quality/mapping.md | — | 從未審 |
-| scores | src/scores/scores.ts | IS | 讀契約 | docs/quality/scores.md | — | 從未審 |
-| backup | src/backup/backup.ts | IS | 讀契約 | docs/quality/backup.md | — | 從未審 |
+| bpm-timeline | src/compile/bpmTimeline.ts | IS | 讀契約 | docs/quality/bpm-timeline.md | b9e39e9 | ok |
+| parse-info | src/compile/parseInfo.ts | IS | 讀契約 | docs/quality/parse-info.md | b9e39e9 | ok |
+| mapping | src/compile/mapping.ts | IS | 讀契約 | docs/quality/mapping.md | b9e39e9 | ok |
+| scores | src/scores/scores.ts | IS | 讀契約 | docs/quality/scores.md | b9e39e9 | ok |
+| backup | src/backup/backup.ts | IS | 讀契約 | docs/quality/backup.md | b9e39e9 | ok |
 | light-show | src/compile/lightShow.ts | UC | 讀測試摘要判覆蓋 | docs/quality/light-show-tests.md | 728ceca | ok |
 | loader | src/loader/ | UC | 讀測試摘要判覆蓋 | docs/quality/loader-tests.md | 728ceca | ok |
 | difficulty-menu | src/compile/difficultyMenu.ts, src/compile/rawDifficulty.ts | US | 測試綠燈 | — | 0561135 | ok |
