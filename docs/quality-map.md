@@ -16,8 +16,8 @@
 | mapping | src/compile/mapping.ts | IS | 讀契約 | docs/quality/mapping.md | — | 從未審 |
 | scores | src/scores/scores.ts | IS | 讀契約 | docs/quality/scores.md | — | 從未審 |
 | backup | src/backup/backup.ts | IS | 讀契約 | docs/quality/backup.md | — | 從未審 |
-| light-show | src/compile/lightShow.ts | UC | 讀測試摘要判覆蓋 | docs/quality/light-show-tests.md | — | 從未審 |
-| loader | src/loader/ | UC | 讀測試摘要判覆蓋 | docs/quality/loader-tests.md | — | 從未審 |
+| light-show | src/compile/lightShow.ts | UC | 讀測試摘要判覆蓋 | docs/quality/light-show-tests.md | 728ceca | ok |
+| loader | src/loader/ | UC | 讀測試摘要判覆蓋 | docs/quality/loader-tests.md | 728ceca | ok |
 | difficulty-menu | src/compile/difficultyMenu.ts, src/compile/rawDifficulty.ts | US | 測試綠燈 | — | — | 從未審 |
 | settings | src/settings/settings.ts | US | 測試綠燈 | — | — | 從未審 |
 | audio | src/audio/player.ts | US | e2e / playtest | — | — | 從未審 |
