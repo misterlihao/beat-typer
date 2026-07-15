@@ -16,7 +16,6 @@
 
 ```ts
 function parseInfo(infoText: string): SongInfo
-function pickPlayableDifficulty(difficulties: readonly DifficultyRef[]): DifficultyRef
 
 interface SongInfo {
   readonly bpm: number;
@@ -62,11 +61,9 @@ interface DifficultyRef {
 - `bpm` 必須 `> 0`(0 / 負 / NaN 皆判無效)。
 - `songName` / `coverFilename` 空字串視同缺漏(→ `undefined`)。
 
-## pickPlayableDifficulty(選預設難度)
+## 難度選擇(已不在本模組)
 
-從非空難度清單挑一個可玩者(完整難度選單留 issue 05):
-1. 濾掉 `characteristic === 'Lightshow'`(純燈光譜、無音符);全被濾光則退回原清單。
-2. 池中優先 `characteristic === 'Standard'`,否則取池中第一個。
+難度選擇由 `difficultyMenu.ts`(`buildDifficultyMenu`,issue 17,即遊戲內難度/鍵群選單)負責。舊的 `pickPlayableDifficulty`(單顆預設挑選)在難度選單接手後成為無呼叫端遺留,已隨本次品質審查移除。
 
 ## 不變式
 
