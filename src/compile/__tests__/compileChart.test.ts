@@ -7,6 +7,9 @@ import { compileChart } from '../compileChart.ts';
 import { glyphOf } from '../mapping.ts';
 
 // ── fixture 建構器 ─────────────────────────────────────────
+// 難度身分:特性 + 難度名(compileChart 認的是身分,不是難度名字串)。
+const EP = { characteristic: 'Standard', difficulty: 'ExpertPlus' };
+
 function infoDat(opts: { bpm?: number; offset?: number } = {}): string {
   return JSON.stringify({
     _version: '2.0.0',
@@ -30,7 +33,7 @@ function diffDat(notes: ReturnType<typeof note>[]): string {
 function compile(notes: ReturnType<typeof note>[], opts: { bpm?: number; offset?: number } = {}) {
   return compileChart(
     { infoText: infoDat(opts), difficultyFiles: { 'd.dat': diffDat(notes) } },
-    'ExpertPlus',
+    EP,
   );
 }
 
@@ -51,7 +54,7 @@ function diffDatV3(notes: ReturnType<typeof noteV3>[]): string {
 function compileV3(notes: ReturnType<typeof noteV3>[], opts: { bpm?: number; offset?: number } = {}) {
   return compileChart(
     { infoText: infoDat(opts), difficultyFiles: { 'd.dat': diffDatV3(notes) } },
-    'ExpertPlus',
+    EP,
   );
 }
 
@@ -141,7 +144,7 @@ describe('compileChart — 錯誤處理', () => {
     const infoText = infoDat();
     const bad = JSON.stringify({ version: '3.2.0', colorNotes: {} });
     expect(() =>
-      compileChart({ infoText, difficultyFiles: { 'd.dat': bad } }, 'ExpertPlus'),
+      compileChart({ infoText, difficultyFiles: { 'd.dat': bad } }, EP),
     ).toThrow(/colorNotes/);
   });
 
@@ -149,20 +152,75 @@ describe('compileChart — 錯誤處理', () => {
     const infoText = infoDat();
     const bad = JSON.stringify({ version: '4.0.0' });
     expect(() =>
-      compileChart({ infoText, difficultyFiles: { 'd.dat': bad } }, 'ExpertPlus'),
+      compileChart({ infoText, difficultyFiles: { 'd.dat': bad } }, EP),
     ).toThrow(/不支援的譜面版本/);
   });
 
-  it('找不到難度名丟出清楚錯誤', () => {
+  it('找不到難度身分丟出清楚錯誤(難度名不存在)', () => {
     expect(() =>
-      compileChart({ infoText: infoDat(), difficultyFiles: { 'd.dat': diffDat([]) } }, 'Nonexistent'),
+      compileChart(
+        { infoText: infoDat(), difficultyFiles: { 'd.dat': diffDat([]) } },
+        { characteristic: 'Standard', difficulty: 'Nonexistent' },
+      ),
+    ).toThrow(/找不到難度/);
+  });
+
+  it('找不到難度身分丟出清楚錯誤(難度名對但特性不存在)', () => {
+    expect(() =>
+      compileChart(
+        { infoText: infoDat(), difficultyFiles: { 'd.dat': diffDat([]) } },
+        { characteristic: 'OneSaber', difficulty: 'ExpertPlus' },
+      ),
     ).toThrow(/找不到難度/);
   });
 
   it('缺少難度檔丟出清楚錯誤', () => {
     expect(() =>
-      compileChart({ infoText: infoDat(), difficultyFiles: {} }, 'ExpertPlus'),
+      compileChart({ infoText: infoDat(), difficultyFiles: {} }, EP),
     ).toThrow(/缺少難度檔/);
+  });
+});
+
+describe('compileChart — 難度身分需含特性(GitHub issue #4 回歸)', () => {
+  // 接縫層回歸:驗 compileChart **有用身分去查**(沒漏接)。身分比對規則本身在 parseInfo.test.ts。
+  // 真實案例 !bsr 3c9cd:Lightshow 與 Standard 都有 ExpertPlus,且 Lightshow 排在前面。
+  // 只比難度名會命中 Lightshow 那筆 → 解析到錯誤檔名 → 「缺少難度檔」→ 選了難度卻進不了遊戲。
+  const multiCharInfo = JSON.stringify({
+    _version: '2.1.0',
+    _beatsPerMinute: 120,
+    _songFilename: 'song.egg',
+    _difficultyBeatmapSets: [
+      {
+        _beatmapCharacteristicName: 'Lightshow',
+        _difficultyBeatmaps: [{ _difficulty: 'ExpertPlus', _beatmapFilename: 'ep-lightshow.dat' }],
+      },
+      {
+        _beatmapCharacteristicName: 'Standard',
+        _difficultyBeatmaps: [{ _difficulty: 'ExpertPlus', _beatmapFilename: 'ep-standard.dat' }],
+      },
+    ],
+  });
+
+  it('同名難度散在多個特性時,只編譯身分吻合的那一個(不被排前面的同名難度搶走)', () => {
+    // 編排層惰性載入:只餵選中的 Standard 檔。修好前這裡會丟「缺少難度檔『ep-lightshow.dat』」。
+    const chart = compileChart(
+      { infoText: multiCharInfo, difficultyFiles: { 'ep-standard.dat': diffDat([note(2, 1, 0, 0)]) } },
+      { characteristic: 'Standard', difficulty: 'ExpertPlus' },
+    );
+    expect(chart).toHaveLength(1);
+    expect(chart[0]!.tSec).toBeCloseTo(1, 10); // beat 2 @120bpm
+  });
+
+  it('餵進兩個同名難度檔也不歧義:身分決定用哪一個', () => {
+    const rawFiles = {
+      infoText: multiCharInfo,
+      difficultyFiles: {
+        'ep-lightshow.dat': diffDat([]),
+        'ep-standard.dat': diffDat([note(2, 1, 0, 0), note(4, 1, 0, 1)]),
+      },
+    };
+    expect(compileChart(rawFiles, { characteristic: 'Standard', difficulty: 'ExpertPlus' })).toHaveLength(2);
+    expect(compileChart(rawFiles, { characteristic: 'Lightshow', difficulty: 'ExpertPlus' })).toEqual([]);
   });
 });
 
@@ -201,7 +259,7 @@ describe('compileChart — v3 忽略非音符陣列', () => {
       obstacles: [{ b: 0, x: 0, y: 0, d: 1, w: 1, h: 1 }],
       burstSliders: [{ b: 0, x: 0, y: 0, c: 0 }],
     });
-    const chart = compileChart({ infoText, difficultyFiles: { 'd.dat': diff } }, 'ExpertPlus');
+    const chart = compileChart({ infoText, difficultyFiles: { 'd.dat': diff } }, EP);
     expect(chart).toHaveLength(1);
     expect(chart[0]!.kind).toBe('press');
   });
@@ -215,7 +273,7 @@ describe('compileChart — v3 忽略非音符陣列', () => {
       obstacles: [],
       sliders: [{ b: 2, x: 0, y: 1, tb: 4, tx: 0, ty: 1, d: 1 }], // 弧線缺 c
     });
-    const chart = compileChart({ infoText, difficultyFiles: { 'd.dat': diff } }, 'ExpertPlus');
+    const chart = compileChart({ infoText, difficultyFiles: { 'd.dat': diff } }, EP);
     expect(chart).toHaveLength(3);
     expect(chart[0]).toMatchObject({ hand: 'left', kind: 'press' }); // 缺 c → 左手
     expect(chart[1]).toMatchObject({ hand: 'right', kind: 'press' });
@@ -272,7 +330,7 @@ describe('compileChart — v3 弧線 → hold', () => {
   const compileSliders = (
     notes: ReturnType<typeof noteV3>[],
     sliders: Parameters<typeof diffWithSliders>[1],
-  ) => compileChart({ infoText: infoDat(), difficultyFiles: { 'd.dat': diffWithSliders(notes, sliders) } }, 'ExpertPlus');
+  ) => compileChart({ infoText: infoDat(), difficultyFiles: { 'd.dat': diffWithSliders(notes, sliders) } }, EP);
 
   it('弧線輸出 kind:hold、tSec 取 head、holdEndSec 取 tail', () => {
     const chart = compileSliders([], [{ c: 0, b: 0, x: 0, y: 1, tb: 2, tx: 0, ty: 1 }]);
@@ -316,7 +374,7 @@ describe('compileChart — 變速(BPM change)beat→秒積分', () => {
     opts: { bpm?: number } = {},
   ) => {
     const diff = JSON.stringify({ version: '3.2.0', colorNotes: notes, sliders: [], bombNotes: [], obstacles: [], bpmEvents });
-    return compileChart({ infoText: infoDat(opts), difficultyFiles: { 'd.dat': diff } }, 'ExpertPlus');
+    return compileChart({ infoText: infoDat(opts), difficultyFiles: { 'd.dat': diff } }, EP);
   };
   const compileV2Bpm = (
     notes: ReturnType<typeof note>[],
@@ -324,7 +382,7 @@ describe('compileChart — 變速(BPM change)beat→秒積分', () => {
     opts: { bpm?: number } = {},
   ) => {
     const diff = JSON.stringify({ _version: '2.0.0', _notes: notes, _obstacles: [], _events: [], _customData: { _BPMChanges: bpmChanges } });
-    return compileChart({ infoText: infoDat(opts), difficultyFiles: { 'd.dat': diff } }, 'ExpertPlus');
+    return compileChart({ infoText: infoDat(opts), difficultyFiles: { 'd.dat': diff } }, EP);
   };
 
   it('v3 多段積分:120→60 @beat4,beats 4/6/8 → 2.0/4.0/6.0s', () => {
@@ -362,7 +420,7 @@ describe('compileChart — 變速(BPM change)beat→秒積分', () => {
       obstacles: [],
       bpmEvents: [{ b: 0, m: 120 }, { b: 4, m: 60 }],
     });
-    const chart = compileChart({ infoText: infoDat(), difficultyFiles: { 'd.dat': diff } }, 'ExpertPlus');
+    const chart = compileChart({ infoText: infoDat(), difficultyFiles: { 'd.dat': diff } }, EP);
     expect(chart[0]!.kind).toBe('hold');
     expect(chart[0]!.tSec).toBeCloseTo(1.0, 10);
     expect(chart[0]!.holdEndSec).toBeCloseTo(4.0, 10);

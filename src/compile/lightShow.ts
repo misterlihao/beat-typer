@@ -5,9 +5,9 @@
 // 涵蓋:v2 `_events` + v3 `basicBeatmapEvents`(經典 et/i/f 模型)。新版 `lightColorEventBoxGroups` → issue 24b。
 // 顏色鏈:逐事件 Chroma `_color` → 每難度 env 覆寫(Info `_envColor*`)→ 本作預設淡紅藍。跳過環境原廠色。
 import { buildBeatToSec } from './bpmTimeline.ts';
-import { parseInfo } from './parseInfo.ts';
+import { findDifficulty, parseInfo } from './parseInfo.ts';
 import { detectFormat, readBpmTimeline, type RawDifficultyMeta } from './rawDifficulty.ts';
-import type { RawMapFiles } from './types.ts';
+import type { DifficultyId, RawMapFiles } from './types.ts';
 
 /** RGB(各 0..1)。強度另計於 brightness。 */
 export interface LightColor {
@@ -146,16 +146,17 @@ interface RawLightEvent {
  * 把單首歌某難度的譜面燈光編譯成標準化 LightShow(issue 24 第一階段)。
  * 無燈光 / 格式不支援 / 難度缺漏一律回空陣列(燈光為選配,優雅退化,不丟錯)。
  * @param rawMapFiles 單首歌的原始檔案(與 compileChart 同一份)
- * @param difficultyName 難度名(如 "ExpertPlus")
+ * @param difficulty **難度身分**(特性 + 難度名);與 compileChart 同一把尺,可直接傳 `DifficultyRef`。
+ *   注意本函式的退化是靜默的——身分比對錯會讓燈光無聲消失(見 GitHub issue #4)。
  */
-export function compileLightShow(rawMapFiles: RawMapFiles, difficultyName: string): LightShow {
+export function compileLightShow(rawMapFiles: RawMapFiles, difficulty: DifficultyId): LightShow {
   let info;
   try {
     info = parseInfo(rawMapFiles.infoText);
   } catch {
     return [];
   }
-  const ref = info.difficulties.find((d) => d.difficulty === difficultyName);
+  const ref = findDifficulty(info.difficulties, difficulty);
   if (!ref) return [];
   const diffText = rawMapFiles.difficultyFiles[ref.filename];
   if (diffText === undefined) return [];

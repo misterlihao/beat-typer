@@ -1,6 +1,6 @@
 // Info.dat 的淺解析:取出難度選單與時間換算所需欄位。純函式。
 // 供難度選單與 compileChart 共用,使讀檔(I/O)留在編排層(見 docs/adr/0005)。
-import type { DifficultyRef, SongInfo } from './types.ts';
+import type { DifficultyId, DifficultyRef, SongInfo } from './types.ts';
 
 interface RawDifficultyBeatmap {
   _difficulty?: string;
@@ -69,4 +69,24 @@ export function parseInfo(infoText: string): SongInfo {
     coverFilename,
     difficulties,
   };
+}
+
+/**
+ * 依「難度身分」在難度清單中找出該筆(含檔名)。純函式。
+ * 身分 = 特性 + 難度名,**兩者都比才唯一**:只比難度名會撞到同名的其他特性
+ * (如 Lightshow 與 Standard 同時有 ExpertPlus,且 Lightshow 可能排在前面),
+ * 進而解析到錯誤的難度檔。找不到回 undefined,由呼叫端決定丟錯或退化。
+ */
+export function findDifficulty(
+  difficulties: readonly DifficultyRef[],
+  id: DifficultyId,
+): DifficultyRef | undefined {
+  return difficulties.find(
+    (d) => d.characteristic === id.characteristic && d.difficulty === id.difficulty,
+  );
+}
+
+/** 難度身分的人類可讀標籤(如 `"Standard ExpertPlus"`);錯誤訊息與畫面標題共用同一種寫法。 */
+export function difficultyLabel(id: DifficultyId): string {
+  return `${id.characteristic} ${id.difficulty}`;
 }

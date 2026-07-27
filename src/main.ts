@@ -4,7 +4,7 @@ import { AudioPlayer } from './audio/player.ts';
 import { compileChart } from './compile/compileChart.ts';
 import { compileLightShow, type LightShow } from './compile/lightShow.ts';
 import { buildDifficultyMenu, noteStats } from './compile/difficultyMenu.ts';
-import { parseInfo } from './compile/parseInfo.ts';
+import { difficultyLabel, parseInfo } from './compile/parseInfo.ts';
 import { startHighway, type ResultsBest } from './highway/highway.ts';
 import type { JudgeSummary } from './judge/types.ts';
 import { adjustedAccuracy, loadScores, recordRun, songKey } from './scores/scores.ts';
@@ -237,11 +237,12 @@ async function startSong(
   const diffText = cachedDiffText ?? decoder.decode(await song.readFile(diff.filename));
 
   // 編譯成 TypingChart(純函式,唯一正規化點)。鍵群為跨場偏好,編譯前由設定層讀回(issue 15)。
+  // 難度以「身分」(特性 + 難度名)指定 —— 傳整個 ref,不可只傳難度名(會撞同名的其他特性,見 GitHub issue #4)。
   const keyGroup = loadSettings().keyGroup;
   const rawFiles = { infoText, difficultyFiles: { [diff.filename]: diffText } };
-  let chart = compileChart(rawFiles, diff.difficulty, { keyGroup });
+  let chart = compileChart(rawFiles, diff, { keyGroup });
   // 譜面燈光 → 標準化時間線(issue 24);與音符正交、獨立純函式。無燈光 → 空陣列,highway 退化為呼吸。
-  const lightShow = compileLightShow(rawFiles, diff.difficulty);
+  const lightShow = compileLightShow(rawFiles, diff);
 
   // DEV-only:?occtest / ?holdtest 用合成譜面覆寫(供 playtest);覆寫時不寫入成績(身分會對不上)。
   const params = new URLSearchParams(location.search);
@@ -290,11 +291,11 @@ async function startSong(
 
   // 主視圖:3D 高速公路;可切換到表格預覽(開發驗證工具)。
   const songName = info.songName ?? song.title;
-  const difficultyLabel = `${diff.characteristic} ${diff.difficulty}`;
+  const diffLabel = difficultyLabel(diff); // 與編譯錯誤訊息共用同一種寫法(特性 + 難度名)
   mountViews(root, chart, player, {
-    title: `${songName} — ${difficultyLabel}`,
+    title: `${songName} — ${diffLabel}`,
     songName,
-    difficultyLabel,
+    difficultyLabel: diffLabel,
     coverUrl: currentCoverUrl,
     lightShow, // 譜面燈光(issue 24);透傳給高速公路的燈光 rig
     bpm: info.bpm,

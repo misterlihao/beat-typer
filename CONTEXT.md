@@ -67,6 +67,10 @@ _Avoid_: 練習模式, 字表(那是詞庫不是鍵群)
 **parseInfo**:
 把 Info.dat 文字淺解析成 `{ bpm, songTimeOffset, audioFilename, difficulties }` 的純函式。供難度選單與 compileChart 共用,使讀檔(I/O)留在編排層。
 
+**難度身分 (DifficultyId)**:
+指定「哪一個難度」所需的最小資訊 = **特性 + 難度名**(如 `Standard` + `ExpertPlus`)。**難度名單獨不唯一**:同一張圖可在多個特性下有同名難度(最常見是 Lightshow 與 Standard 都有 ExpertPlus),故凡是「拿難度去查東西」一律傳身分,不傳難度名字串。`compileChart` / `compileLightShow` 都以此為參數,`DifficultyRef`(身分 + 檔名)可直接當身分傳。
+_Avoid_: 難度名當 key、`_difficulty` 字串比對
+
 **RawMapFiles**:
 交給 compileChart 的單首歌原始檔案(檔名→未解析文字);compileChart 自己 parse 與正規化,是唯一正規化點。
 
@@ -87,7 +91,7 @@ _Avoid_: event, keystroke
 一個 `key`(按鍵碼)給玩家看的顯示字元(`"Semicolon"`→`;`)。永遠由 `glyphOf(code)` 即時推導,不存進 Note。
 
 **compileChart**:
-把原始譜面檔 + 難度 + config 轉成 TypingChart 的純函式。可決定性,不含 I/O、音訊或渲染。主測試接縫。
+把原始譜面檔 + 難度身分 + config 轉成 TypingChart 的純函式。可決定性,不含 I/O、音訊或渲染。主測試接縫。
 
 ## 遊玩(輸出端詞彙)
 

@@ -16,7 +16,7 @@ describe('golden — 內建範例', () => {
   const diff = info.difficulties[0]!;
   const chart = compileChart(
     { infoText, difficultyFiles: { [diff.filename]: read(diff.filename) } },
-    diff.difficulty,
+    diff, // 難度身分:DifficultyRef 直接當身分傳(特性 + 難度名)
   );
 
   it('parseInfo 取得正確的 BPM / offset / 音訊檔 / 難度', () => {

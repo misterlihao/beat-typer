@@ -12,10 +12,24 @@
 
 **淺解析**:只碰 top-level 與 `_difficultyBeatmapSets` 兩層,不讀音符、不做 BPM 時間線正規化(那在 compileChart)。
 
+除解析外,本模組另擁有**「Info.dat 難度清單的查詢」**:依難度身分找出該筆(`findDifficulty`)與其人類可讀標籤(`difficultyLabel`)。放這裡是為了讓 `compileChart` 與 `compileLightShow` 共用同一把尺,不各自複製「怎麼算同一個難度」而漂移(見 GitHub issue #4)。
+
 ## 公開介面
 
 ```ts
 function parseInfo(infoText: string): SongInfo
+
+/** 依難度身分(特性 + 難度名)找出該筆;找不到回 undefined,由呼叫端決定丟錯或退化。 */
+function findDifficulty(
+  difficulties: readonly DifficultyRef[],
+  id: DifficultyId,
+): DifficultyRef | undefined
+
+/** 身分 → 人類可讀標籤,如 "Standard ExpertPlus"。錯誤訊息與畫面標題共用。 */
+function difficultyLabel(id: DifficultyId): string
+
+/** 難度身分:指定「哪一個難度」的最小資訊。DifficultyRef 結構相容,可直接傳。 */
+type DifficultyId = Pick<DifficultyRef, 'characteristic' | 'difficulty'>
 
 interface SongInfo {
   readonly bpm: number;
@@ -55,6 +69,13 @@ interface DifficultyRef {
 - 缺 `_songFilename` → `Info.dat 缺少 _songFilename`
 - 無任何難度 → `Info.dat 未列出任何難度`
 
+## 難度身分比對契約(findDifficulty)
+
+- **身分 = 特性 + 難度名,兩者都比**。只比難度名會撞名:同一張圖可在多個特性下有同名難度(如 Lightshow 與 Standard 都有 `ExpertPlus`,且 Lightshow 可能排在 Info.dat 前面),只比名字會解析到錯誤的難度檔 → 選了難度卻進不了遊戲 / 燈光靜默消失(GitHub issue #4 的根因)。
+- 字串**精確比對**,不做大小寫寬容、不做別名(`Expert+` ≠ `ExpertPlus`)。檔名層級的大小寫寬容在 `SongHandle.readFile`,不在此。
+- 有多筆完全同身分時取**第一筆**(Info.dat 本身不該有重複身分;此為穩定退路,非契約承諾)。
+- 找不到 → `undefined`。**丟錯與否由呼叫端決定**:`compileChart` 丟錯(音符是必要的),`compileLightShow` 靜默回 `[]`(燈光是選配)。
+
 ## 邊界規則
 
 - 只認 v2 底線前綴欄位名(`_beatsPerMinute` 等)。**大小寫不寬容**:欄位名需精確匹配(檔名層級的大小寫寬容在 `SongHandle.readFile`,不在此)。
@@ -69,3 +90,4 @@ interface DifficultyRef {
 
 - 回傳成功時 `difficulties` 必非空、`bpm > 0`、`audioFilename` 非空。
 - 純函式:同文字永得同結果,無 I/O。
+- `findDifficulty` 回傳非 undefined 時,該筆必來自傳入清單(含其 `filename`),不自行推導檔名。

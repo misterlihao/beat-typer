@@ -6,9 +6,9 @@
 // issue 10:曲中變速——beat→秒改為分段 BPM 積分(見 docs/adr/0009)。
 import { buildBeatToSec, type BpmSegment } from './bpmTimeline.ts';
 import { assignKeys, type UnassignedNote } from './keyAssignment.ts';
-import { parseInfo } from './parseInfo.ts';
+import { difficultyLabel, findDifficulty, parseInfo } from './parseInfo.ts';
 import { detectFormat, readBpmTimeline, type RawDifficultyMeta } from './rawDifficulty.ts';
-import type { CompileConfig, RawMapFiles, TypingChart } from './types.ts';
+import type { CompileConfig, DifficultyId, RawMapFiles, TypingChart } from './types.ts';
 
 // 鍵指派可玩性硬底線:同手同指最小間隔(秒)。約 120ms。
 const DEFAULT_MIN_SAME_FINGER_GAP_SEC = 0.12;
@@ -174,20 +174,21 @@ function collapseStacks(
 /**
  * 把原始譜面檔編譯成 TypingChart。
  * @param rawMapFiles 單首歌的原始檔案(未解析文字)
- * @param difficultyName 要編譯的難度名(如 "ExpertPlus")
+ * @param difficulty 要編譯的**難度身分**(特性 + 難度名,如 `{characteristic:'Standard', difficulty:'ExpertPlus'}`);
+ *   可直接傳 `DifficultyRef`。只給難度名不足以唯一指定——見 `DifficultyId` 與 GitHub issue #4。
  * @param config 編譯期組態(鍵指派可玩性間隔等)
  */
 export function compileChart(
   rawMapFiles: RawMapFiles,
-  difficultyName: string,
+  difficulty: DifficultyId,
   config: CompileConfig = {},
 ): TypingChart {
   const info = parseInfo(rawMapFiles.infoText);
 
-  const ref = info.difficulties.find((d) => d.difficulty === difficultyName);
+  const ref = findDifficulty(info.difficulties, difficulty);
   if (!ref) {
-    const names = info.difficulties.map((d) => d.difficulty).join(', ');
-    throw new Error(`找不到難度「${difficultyName}」;可用難度:${names}`);
+    const names = info.difficulties.map(difficultyLabel).join(', ');
+    throw new Error(`找不到難度「${difficultyLabel(difficulty)}」;可用難度:${names}`);
   }
 
   const diffText = rawMapFiles.difficultyFiles[ref.filename];

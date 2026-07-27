@@ -4,6 +4,9 @@
 import { describe, expect, it } from 'vitest';
 import { compileLightShow } from '../lightShow.ts';
 
+// 難度身分:特性 + 難度名(compileLightShow 與 compileChart 認同一把尺)。
+const EP = { characteristic: 'Standard', difficulty: 'ExpertPlus' };
+
 // ── Info fixture(可帶每難度 env 覆寫)──
 function infoDat(opts: { bpm?: number; offset?: number; env?: Record<string, unknown> } = {}): string {
   return JSON.stringify({
@@ -32,7 +35,7 @@ function diffV2(events: object[]): string {
 function compileV2(events: object[], opts: Parameters<typeof infoDat>[0] = {}) {
   return compileLightShow(
     { infoText: infoDat(opts), difficultyFiles: { 'd.dat': diffV2(events) } },
-    'ExpertPlus',
+    EP,
   );
 }
 
@@ -46,7 +49,7 @@ function diffV3(events: object[], extra: Record<string, unknown> = {}): string {
 function compileV3(events: object[], opts: Parameters<typeof infoDat>[0] = {}, extra: Record<string, unknown> = {}) {
   return compileLightShow(
     { infoText: infoDat(opts), difficultyFiles: { 'd.dat': diffV3(events, extra) } },
-    'ExpertPlus',
+    EP,
   );
 }
 
@@ -68,16 +71,49 @@ describe('compileLightShow — 格式解析', () => {
 
   it('無事件 / 空陣列 / 不支援版本 → 空時間線', () => {
     expect(compileV2([])).toEqual([]);
-    expect(compileLightShow({ infoText: infoDat(), difficultyFiles: { 'd.dat': '{"_version":"9"}' } }, 'ExpertPlus')).toEqual([]);
-    expect(compileLightShow({ infoText: infoDat(), difficultyFiles: {} }, 'ExpertPlus')).toEqual([]);
-    expect(compileLightShow({ infoText: infoDat(), difficultyFiles: { 'd.dat': 'not json' } }, 'ExpertPlus')).toEqual([]);
+    expect(compileLightShow({ infoText: infoDat(), difficultyFiles: { 'd.dat': '{"_version":"9"}' } }, EP)).toEqual([]);
+    expect(compileLightShow({ infoText: infoDat(), difficultyFiles: {} }, EP)).toEqual([]);
+    expect(compileLightShow({ infoText: infoDat(), difficultyFiles: { 'd.dat': 'not json' } }, EP)).toEqual([]);
   });
 
   it('找不到難度 → 空時間線', () => {
     expect(compileV2([v2Event(0, 1, 1)], {}).length).toBe(1);
     expect(
-      compileLightShow({ infoText: infoDat(), difficultyFiles: { 'd.dat': diffV2([v2Event(0, 1, 1)]) } }, 'Nope'),
+      compileLightShow(
+        { infoText: infoDat(), difficultyFiles: { 'd.dat': diffV2([v2Event(0, 1, 1)]) } },
+        { characteristic: 'Standard', difficulty: 'Nope' },
+      ),
     ).toEqual([]);
+  });
+
+  // GitHub issue #4 回歸。這條**不是**在驗身分比對規則(那在 parseInfo.test.ts),而是驗兩件本模組特有的事:
+  //   1. compileLightShow 沒漏接身分比對(它與 compileChart 各自查一次,漏改一邊不會被對方的測試抓到)。
+  //   2. 這條錯誤路徑是**靜默**的:身分解析錯 → 拿不到檔 → 回 `[]`,而空時間線是合法輸出(無燈光的圖就是空)。
+  //      不丟錯、畫面無紅字,只是 Standard 譜的燈光整條無聲消失。故本模組其他退化條目都斷言「等於 []」,
+  //      唯獨這條反過來斷言「不等於空」——這是唯一抓得到它的方式。
+  it('燈光取身分吻合的那個檔(不被排前面的同名難度搶走)', () => {
+    const infoText = JSON.stringify({
+      _version: '2.1.0',
+      _beatsPerMinute: 120,
+      _songFilename: 'song.egg',
+      _difficultyBeatmapSets: [
+        {
+          _beatmapCharacteristicName: 'Lightshow',
+          _difficultyBeatmaps: [{ _difficulty: 'ExpertPlus', _beatmapFilename: 'ep-lightshow.dat' }],
+        },
+        {
+          _beatmapCharacteristicName: 'Standard',
+          _difficultyBeatmaps: [{ _difficulty: 'ExpertPlus', _beatmapFilename: 'ep-standard.dat' }],
+        },
+      ],
+    });
+    // 編排層惰性載入:只餵選中的 Standard 檔。修好前這裡會拿不到檔 → 靜默回 []。
+    const show = compileLightShow(
+      { infoText, difficultyFiles: { 'ep-standard.dat': diffV2([v2Event(2, 1, 1)]) } },
+      { characteristic: 'Standard', difficulty: 'ExpertPlus' },
+    );
+    expect(show).toHaveLength(1);
+    expect(show[0]!.tSec).toBeCloseTo(1, 10); // beat 2 @120bpm
   });
 });
 

@@ -52,6 +52,13 @@ export interface DifficultyRef {
   readonly filename: string; // 如 "ExpertPlusStandard.dat"
 }
 
+/**
+ * 難度身分:指定「哪一個難度」所需的最小資訊。
+ * **特性 + 難度名才唯一**——單靠難度名會撞名(同一張圖的 Lightshow 與 Standard 可同時有
+ * ExpertPlus,見 GitHub issue #4);`DifficultyRef` 結構相容,可直接傳。
+ */
+export type DifficultyId = Pick<DifficultyRef, 'characteristic' | 'difficulty'>;
+
 /** parseInfo 的輸出:Info.dat 的淺解析結果。 */
 export interface SongInfo {
   readonly bpm: number;

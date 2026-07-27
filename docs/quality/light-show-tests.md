@@ -6,15 +6,26 @@
 
 ## 這是什麼
 
-`compileLightShow(rawMapFiles, difficultyName)` 把 Beat Saber 譜面的燈光事件編譯成一條標準化、依 `tSec` 排序的 `LightShow`(每筆 = 時刻 / 燈組 / 動作 / 顏色 / 亮度)。純函式,無 I/O。燈光與 TypingChart 正交,不影響音符 / 判定 / 計分。
+`compileLightShow(rawMapFiles, difficultyId)` 把 Beat Saber 譜面的燈光事件編譯成一條標準化、依 `tSec` 排序的 `LightShow`(每筆 = 時刻 / 燈組 / 動作 / 顏色 / 亮度)。純函式,無 I/O。燈光與 TypingChart 正交,不影響音符 / 判定 / 計分。
 
 ## 逐條:每組測試在驗什麼行為
+
+### 輸入選擇:有沒有讀到「正確的那一個難度檔」
+與燈光語意無關的上游一步。`compileLightShow` 拿到的是「整張圖的檔案集 + 一個難度身分」,得先把身分解析成檔名、取出該檔,才有燈光可解析。這組測試釘的就是這一步。
+
+- **難度身分對不上 → 空時間線**:身分 = 特性 + 難度名;同資料換掉難度名(`Standard Nope`)即空。反面對照組是同一份資料用正確身分會有 1 筆輸出。
+- **缺該難度檔 → 空時間線**:`difficultyFiles` 沒有身分解析出的那個檔名時退化為空。
+
+- **燈光取身分吻合的那個檔,不被排前面的同名難度搶走**(GitHub issue #4 回歸點)
+  - **fixture**:Info.dat 兩個特性各有一個 `ExpertPlus`(`Lightshow` 排在 `Standard` **前面**);`difficultyFiles` 只放 `ep-standard.dat`(模擬編排層惰性載入——只讀使用者選中的那一個檔)。該檔內有 1 筆 beat 2 的燈光事件。
+  - **斷言**:輸出**恰 1 筆**、`tSec ≈ 1`(beat 2 @120bpm)。
+  - **釘住的行為**:兩件本模組特有的事 ——(1) `compileLightShow` **沒漏接**身分比對:它與 `compileChart` 各自查一次,只改一邊不會被對方的測試抓到;(2) 這條錯誤路徑是**靜默**的。身分比對規則本身不在這裡測,在 `parseInfo.test.ts`(規則的家)。
+  - **為什麼要在這裡再測一次**:若身分解析錯,會拿到 `ep-lightshow.dat`,該檔不在 `difficultyFiles` → 落「缺該難度檔」分支 → 回 `[]`。**而空時間線是合法輸出**(沒有燈光的圖本來就是空),所以不丟錯、畫面無紅字,只是 Standard 譜的燈光整條無聲消失。這是本模組唯一「壞掉但沒人會發現」的路徑,故本模組其他退化條目都斷言「等於 `[]`」,**唯獨這條反過來斷言「不等於空」**。
 
 ### 格式解析
 - **解析 v2 `_events`**:讀出 `_type`→group、`_value`→action、`_time`→`tSec`(beat 換秒)。
 - **解析 v3 `basicBeatmapEvents`**:讀 `b`/`et`/`i` 欄位;beat 2 @120bpm → 1 秒。
-- **無事件 / 空陣列 / 不支援版本 / 缺難度檔 / 壞 JSON → 空時間線**:燈光為選配,一律優雅退化回 `[]`,不丟錯。
-- **找不到指定難度名 → 空時間線**:難度名對得上才有輸出(反面對照:同資料換掉難度名即空)。
+- **無事件 / 空陣列 / 不支援版本 / 壞 JSON → 空時間線**:燈光為選配,一律優雅退化回 `[]`,不丟錯。
 
 ### 動作解碼(decodeValue)
 - **值 → off/on/flash/fade/transition**:逐一驗 0=off;1/5=on;2/6=flash;3/7=fade;4/8/12=transition,涵蓋藍碼(1-4)、紅碼(5-8)、白碼(12)。
