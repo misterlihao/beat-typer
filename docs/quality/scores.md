@@ -25,7 +25,7 @@ interface RunResult { rawAccuracy; keyGroup; maxCombo; fullCombo; } // 一場完
 interface ScoreStore { version: number; records: Record<songKey, ScoreRecord>; }
 ```
 
-`STORAGE_KEY = 'beat-typer:scores'`、`SCORES_VERSION = 1`。
+`STORAGE_KEY = 'beat-typer:scores'`、`SCORES_VERSION = 2`(v2 = 鍵群改「分排」那次:鍵群清單與全鍵鍵池 15→20 皆變,舊紀錄不可比 → 整庫作廢)。
 
 ## songKey(歌曲身分)
 
@@ -40,7 +40,7 @@ coefficientFor(kg)  = 0.5 + 0.5 × (keyGroupPoolSize(kg) / keyGroupPoolSize('all
 adjustedAccuracy(raw, kg) = raw × coefficientFor(kg)
 ```
 
-- 全鍵 `all` = ×1.0;鍵群越小係數越低,但底線 0.5(非鍵數線性,不羞辱針對性練習)。
+- 全鍵 `all` = ×1.0(20 鍵/手);四個單排鍵群皆 5 鍵/手 → 同為 **0.625**(係數只看鍵池大小,不看排的難易——見 ADR 0011 被否決項)。底線 0.5(非鍵數線性,不羞辱針對性練習)。
 - 係數由「每手鍵池大小」即時導出(委派 `keyAssignment.keyGroupPoolSize`),鍵群增減自動重算,不寫死表。
 - **`adjustedAccuracy` 是跨鍵群唯一可比、用於排名與判定「刷新」的分數。**
 
@@ -77,7 +77,7 @@ applyRun(prev: ScoreRecord | undefined, run: RunResult): { record; improved }
 
 把任意來源(壞 JSON、被竄改、舊版)強制成合法 `ScoreStore`,純函式:
 
-- 整包層:非物件 / `version !== 1` / `records` 非物件 → **空庫**(目前僅 v1,版本不符直接丟棄重來)。
+- 整包層:非物件 / `version !== 2` / `records` 非物件 → **空庫**(只認當前版,舊版直接丟棄重來,無 migration)。
 - 逐筆層 `coerceRecord`:任一欄位型別/值不合 → 回 `null`(**丟棄該筆**,不污染整庫)。
   - `bestRawAccuracy`:須有限 number → `clamp01`(夾 0..1)。
   - `bestKeyGroup`:須在 `KEY_GROUPS` 內。

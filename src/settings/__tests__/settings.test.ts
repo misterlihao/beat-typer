@@ -79,7 +79,7 @@ describe('coerceSettings — 合法值原樣', () => {
 
 describe('coerceSettings — 鍵群列舉(issue 15)', () => {
   it('合法鍵群原樣保留', () => {
-    expect(coerceSettings({ ...DEFAULTS, keyGroup: 'index-middle' }).keyGroup).toBe('index-middle');
+    expect(coerceSettings({ ...DEFAULTS, keyGroup: 'number' }).keyGroup).toBe('number');
   });
 
   it('缺 / 非法 / 型別錯的鍵群 → 回退 all', () => {

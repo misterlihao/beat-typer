@@ -17,7 +17,7 @@ const FINGER_LABEL: Record<Finger, string> = {
   middle: '中指',
   index: '食指',
 };
-const BANK_LABEL: Record<Bank, string> = { top: '上', home: '家', bottom: '下' };
+const BANK_LABEL: Record<Bank, string> = { number: '數', top: '上', home: '家', bottom: '下' };
 
 const STYLE = `
 .bt-preview { font-family: system-ui, sans-serif; max-width: 860px; margin: 24px auto; color: #1a1a1a; }

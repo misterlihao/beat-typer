@@ -44,10 +44,11 @@ export interface ResultsBest {
   readonly improved: boolean; // 本場是否刷新 → 顯示 🏆
 }
 
-// ── 鍵盤版面:實體按鍵碼 → (欄 0..9 由左到右, 列 0下/1家/2上)。唯一的幾何真實來源。 ──
+// ── 鍵盤版面:實體按鍵碼 → (欄 0..9 由左到右, 列 0下/1家/2上/3數字)。唯一的幾何真實來源。 ──
 const KEY_LAYOUT: Readonly<Record<string, { col: number; row: number }>> = buildLayout();
 function buildLayout(): Record<string, { col: number; row: number }> {
   const rows: [row: number, codes: string[]][] = [
+    [3, ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0']],
     [2, ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT', 'KeyY', 'KeyU', 'KeyI', 'KeyO', 'KeyP']],
     [1, ['KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyL', 'Semicolon']],
     [0, ['KeyZ', 'KeyX', 'KeyC', 'KeyV', 'KeyB', 'KeyN', 'KeyM', 'Comma', 'Period', 'Slash']],
@@ -64,11 +65,12 @@ const FAR_Z = -40; // 音符生成的遠端(在霧內,一出生即清楚可見;�
 const PLANE_Z = 0; // 判定平面
 const NOTE_SIZE = 0.72;
 const COLS = 10;
-const ROWS = 3;
+const ROWS = 4;
 
 const HAND_COLOR: Record<Hand, number> = { left: 0xe0503f, right: 0x2e86d6 };
 
 const laneX = (col: number) => (col - (COLS - 1) / 2) * LANE_SPACING;
+// 第四排(數字排)往**上**長,字母三排維持原高度:相機是低角度俯視,往下長會把下排推出畫面下緣。
 const rowY = (row: number) => (row - 1) * ROW_SPACING;
 
 // ── 向上彎曲的飛行走廊(去除近/遠螢幕重疊,見 grilling)。 ──
@@ -916,15 +918,16 @@ export function startHighway(
 function buildTargetGrid(): THREE.Group {
   const group = new THREE.Group();
   const halfW = (COLS / 2) * LANE_SPACING;
-  const halfH = (ROWS / 2) * ROW_SPACING;
+  const botY = rowY(0) - ROW_SPACING / 2; // 格線上下界由 rowY 導出(列高非以 0 為中心,見 rowY)
+  const topY = rowY(ROWS - 1) + ROW_SPACING / 2;
 
   const pts: number[] = [];
   for (let c = 0; c <= COLS; c++) {
     const x = c * LANE_SPACING - halfW;
-    pts.push(x, -halfH, PLANE_Z, x, halfH, PLANE_Z);
+    pts.push(x, botY, PLANE_Z, x, topY, PLANE_Z);
   }
   for (let r = 0; r <= ROWS; r++) {
-    const y = r * ROW_SPACING - halfH;
+    const y = botY + r * ROW_SPACING;
     pts.push(-halfW, y, PLANE_Z, halfW, y, PLANE_Z);
   }
   const geo = new THREE.BufferGeometry();

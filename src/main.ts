@@ -22,9 +22,9 @@ import { exportBackup, importBackup, type ImportMode } from './backup/backup.ts'
 const KEY_GROUP_LABELS: Record<KeyGroup, string> = {
   all: '全鍵',
   home: '家排',
-  'home-top': '家排+上排',
-  'index-middle': '食指中指',
-  'ring-pinky': '無名小指',
+  top: '上排',
+  bottom: '下排',
+  number: '數字排',
 };
 
 const decoder = new TextDecoder('utf-8');

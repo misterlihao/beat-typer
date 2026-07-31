@@ -16,12 +16,13 @@ export interface UnassignedNote {
   readonly holdEndSec?: number;
 }
 
-// 教學權重因子:家排>上排>下排、食指/中指>無名/小指;內側鍵(食指 reach)再打折。
-const BANK_WEIGHT: Record<Bank, number> = { home: 3, top: 2, bottom: 1 };
+// 教學權重因子:家排>上排>下排>數字排、食指/中指>無名/小指;內側鍵(食指 reach)再打折。
+// 數字排最遠、日常打字佔比也最低,故權重壓在下排之下(全鍵模式下約佔 8%)。
+const BANK_WEIGHT: Record<Bank, number> = { home: 3, top: 2, bottom: 1, number: 0.5 };
 const FINGER_WEIGHT: Record<Finger, number> = { index: 3, middle: 3, ring: 2, pinky: 1 };
 const INNER_PENALTY = 0.5;
 
-const BANKS: readonly Bank[] = ['home', 'top', 'bottom'];
+const BANKS: readonly Bank[] = ['home', 'top', 'bottom', 'number'];
 const FINGERS: readonly Finger[] = ['index', 'middle', 'ring', 'pinky'];
 
 /** 鍵池的一個候選:某手可用的一個鍵 + 教學權重 + 可玩性所需的手指。 */
@@ -32,17 +33,18 @@ interface PoolKey {
   readonly weight: number;
 }
 
-// 鍵群 → 排/指過濾(缺欄位=不限制該維度)。權威清單見 compile/types.ts KEY_GROUPS;見 docs/adr/0011。
+// 鍵群 → 排過濾(缺欄位=不限制)。權威清單見 compile/types.ts KEY_GROUPS;見 docs/adr/0011。
+// 只沿「排」切:跨排(要離開家排位)的難度落差遠大於跨指,分排練習才拉得出效果。
 const GROUP_FILTER: Record<KeyGroup, { banks?: readonly Bank[]; fingers?: readonly Finger[] }> = {
   all: {},
   home: { banks: ['home'] },
-  'home-top': { banks: ['home', 'top'] },
-  'index-middle': { fingers: ['index', 'middle'] },
-  'ring-pinky': { fingers: ['ring', 'pinky'] },
+  top: { banks: ['top'] },
+  bottom: { banks: ['bottom'] },
+  number: { banks: ['number'] },
 };
 
 /**
- * 建某手的鍵池:12 個一般鍵 + 3 個內側鍵(食指),各帶教學權重;再依鍵群過濾成子集。
+ * 建某手的鍵池:16 個一般鍵 + 4 個內側鍵(食指),各帶教學權重;再依鍵群過濾成子集。
  * 鍵群一律雙手對稱且皆非空(見 docs/adr/0011),故過濾後至少仍有數鍵。
  */
 function buildPool(hand: Hand, keyGroup: KeyGroup): PoolKey[] {

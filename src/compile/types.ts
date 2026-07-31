@@ -6,8 +6,8 @@ export type Hand = 'left' | 'right';
 /** 一隻手的手指,是被指派鍵的屬性(由鍵指派決定;見 docs/adr/0008)。 */
 export type Finger = 'pinky' | 'ring' | 'middle' | 'index';
 
-/** 鍵盤上/家/下排,是被指派鍵的屬性(由鍵指派決定)。 */
-export type Bank = 'top' | 'home' | 'bottom';
+/** 鍵盤數字/上/家/下排,是被指派鍵的屬性(由鍵指派決定)。 */
+export type Bank = 'number' | 'top' | 'home' | 'bottom';
 
 /** 音符種類。01 僅產生 press;hold 於 issue 03/08 才出現。 */
 export type NoteKind = 'press' | 'hold';
@@ -33,8 +33,9 @@ export type TypingChart = readonly Note[];
 /**
  * 鍵群(Key Group):鍵指派可用鍵池的預設子集,供針對性練習。一律雙手對稱,故不改變
  * 顏色→手/音符數/判定分母(見 docs/adr/0011、CONTEXT「鍵群」)。KEY_GROUPS 為權威清單。
+ * 軸只有「排」:全鍵 + 四個單排(家/上/下/數字)——跨排難度落差遠大於跨指,分排練才有效。
  */
-export const KEY_GROUPS = ['all', 'home', 'home-top', 'index-middle', 'ring-pinky'] as const;
+export const KEY_GROUPS = ['all', 'home', 'top', 'bottom', 'number'] as const;
 export type KeyGroup = (typeof KEY_GROUPS)[number];
 
 /** compileChart 的組態。 */

@@ -6,8 +6,8 @@ import type { Hand } from '../types.ts';
 
 const GAP = 0.12;
 
-const LEFT_KEYS = new Set(['KeyQ','KeyW','KeyE','KeyR','KeyA','KeyS','KeyD','KeyF','KeyZ','KeyX','KeyC','KeyV','KeyT','KeyG','KeyB']);
-const RIGHT_KEYS = new Set(['KeyU','KeyI','KeyO','KeyP','KeyJ','KeyK','KeyL','Semicolon','KeyM','Comma','Period','Slash','KeyY','KeyH','KeyN']);
+const LEFT_KEYS = new Set(['Digit1','Digit2','Digit3','Digit4','Digit5','KeyQ','KeyW','KeyE','KeyR','KeyA','KeyS','KeyD','KeyF','KeyZ','KeyX','KeyC','KeyV','KeyT','KeyG','KeyB']);
+const RIGHT_KEYS = new Set(['Digit6','Digit7','Digit8','Digit9','Digit0','KeyU','KeyI','KeyO','KeyP','KeyJ','KeyK','KeyL','Semicolon','KeyM','Comma','Period','Slash','KeyY','KeyH','KeyN']);
 
 /** 產生一串同手 press,自 startT 起每隔 dt 秒一顆。 */
 function stream(hand: Hand, count: number, dt: number, startT = 0): UnassignedNote[] {
@@ -51,16 +51,17 @@ describe('鍵指派 — 可玩性硬底線', () => {
 
 describe('鍵指派 — 教學權重傾向(家排優先)', () => {
   const out = assignKeys(stream('left', 300, 0.3), GAP); // 間隔遠大於 gap,純權重驅動
-  const byBank = { top: 0, home: 0, bottom: 0 };
+  const byBank = { top: 0, home: 0, bottom: 0, number: 0 };
   const byFinger = { index: 0, middle: 0, ring: 0, pinky: 0 };
   for (const n of out) {
     byBank[n.bank]++;
     byFinger[n.finger]++;
   }
 
-  it('排:家排 > 上排 > 下排', () => {
+  it('排:家排 > 上排 > 下排 > 數字排', () => {
     expect(byBank.home).toBeGreaterThan(byBank.top);
     expect(byBank.top).toBeGreaterThan(byBank.bottom);
+    expect(byBank.bottom).toBeGreaterThan(byBank.number);
   });
 
   it('手指:食指 > 中指 > 無名 > 小指', () => {
@@ -80,8 +81,8 @@ describe('鍵指派 — 峰值上限與覆蓋', () => {
     expect(peak).toBeLessThanOrEqual(0.16);
   });
 
-  it('足夠長的譜覆蓋整個手的鍵池(15 鍵全中)', () => {
-    expect(Object.keys(count)).toHaveLength(15);
+  it('足夠長的譜覆蓋整個手的鍵池(20 鍵全中)', () => {
+    expect(Object.keys(count)).toHaveLength(20);
   });
 
   it('家排食指 KeyF 不再被餓死(明顯高於最低權重鍵)', () => {
@@ -102,35 +103,27 @@ describe('鍵指派 — 鍵群(issue 15)', () => {
   const distinctKeys = (out: ReturnType<typeof assignKeys>, hand: Hand) =>
     new Set(out.filter((n) => n.hand === hand).map((n) => n.key));
 
-  it('home:只用家排', () => {
-    const out = assignKeys(bothHands(), GAP, 'home');
-    expect(out.every((n) => n.bank === 'home')).toBe(true);
-    expect(distinctKeys(out, 'left').size).toBe(5); // A S D F + 內 G
-    expect(distinctKeys(out, 'right').size).toBe(5);
-  });
+  // 四個單排群共用同一條斷言:只用該排、每手 5 鍵(4 指 + 食指內側)。
+  const SINGLE_BANKS = [
+    ['home', '家排'],
+    ['top', '上排'],
+    ['bottom', '下排'],
+    ['number', '數字排'],
+  ] as const;
 
-  it('home-top:只用家排+上排', () => {
-    const out = assignKeys(bothHands(), GAP, 'home-top');
-    expect(out.every((n) => n.bank === 'home' || n.bank === 'top')).toBe(true);
-    expect(distinctKeys(out, 'left').size).toBe(10);
-  });
+  for (const [bank, label] of SINGLE_BANKS) {
+    it(`${bank}:只用${label},每手 5 鍵`, () => {
+      const out = assignKeys(bothHands(), GAP, bank);
+      expect(out.every((n) => n.bank === bank)).toBe(true);
+      expect(distinctKeys(out, 'left').size).toBe(5); // 4 指 + 食指內側鍵
+      expect(distinctKeys(out, 'right').size).toBe(5);
+    });
+  }
 
-  it('index-middle:只用食指/中指(含食指內側鍵)', () => {
-    const out = assignKeys(bothHands(), GAP, 'index-middle');
-    expect(out.every((n) => n.finger === 'index' || n.finger === 'middle')).toBe(true);
-    expect(distinctKeys(out, 'left').size).toBe(9); // index×3 + middle×3 + 內側 index×3
-  });
-
-  it('ring-pinky:只用無名/小指(無內側鍵)', () => {
-    const out = assignKeys(bothHands(), GAP, 'ring-pinky');
-    expect(out.every((n) => n.finger === 'ring' || n.finger === 'pinky')).toBe(true);
-    expect(distinctKeys(out, 'left').size).toBe(6); // ring×3 + pinky×3
-  });
-
-  it("預設 'all' 與不帶 keyGroup 位元級相同(不回歸 issue 11)", () => {
+  it("預設 'all' 與不帶 keyGroup 位元級相同;涵蓋四排共 20 鍵", () => {
     const notes = bothHands();
     expect(assignKeys(notes, GAP, 'all')).toEqual(assignKeys(notes, GAP));
-    expect(distinctKeys(assignKeys(notes, GAP, 'all'), 'left').size).toBe(15);
+    expect(distinctKeys(assignKeys(notes, GAP, 'all'), 'left').size).toBe(20);
   });
 
   it('雙手群不改變手歸屬與音符數(顏色→手不變)', () => {
@@ -141,9 +134,9 @@ describe('鍵指派 — 鍵群(issue 15)', () => {
   });
 
   it('鍵群縮小致手指全被佔 → 只在群內放寬(不借群外鍵)', () => {
-    // index-middle 僅 2 指;超快同手串必逼出同指重用,但鍵必仍屬該群(finger∈{index,middle})。
-    const out = assignKeys(stream('left', 40, 0.02), GAP, 'index-middle');
-    expect(out.every((n) => n.finger === 'index' || n.finger === 'middle')).toBe(true);
+    // 單排群每手僅 4 指;超快同手串必逼出同指重用,但鍵必仍屬該排(不會偷跑到家排)。
+    const out = assignKeys(stream('left', 40, 0.02), GAP, 'number');
+    expect(out.every((n) => n.bank === 'number')).toBe(true);
   });
 
   it('鍵群 determinism:同 (音符+群) 兩次相同', () => {
