@@ -12,6 +12,10 @@ describe('KEY_LAYOUT', () => {
     expect(KEY_LAYOUT.KeyQ).toEqual({ col: 0, row: 2 });
     expect(KEY_LAYOUT.KeyZ).toEqual({ col: 0, row: 0 });
   });
+  it('數字排列=3,從左到右欄 0..9', () => {
+    expect(KEY_LAYOUT.Digit1).toEqual({ col: 0, row: 3 });
+    expect(KEY_LAYOUT.Digit0).toEqual({ col: 9, row: 3 });
+  });
 });
 
 describe('laneX / rowY', () => {

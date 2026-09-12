@@ -7,6 +7,7 @@
 
 - **鍵群一律雙手對稱**的排/指子集,兩手都保有鍵 → 顏色→手不變、不濾音符、judge 分母不變。**不做單手、不做自由組合**(原取捨 1 的 A/B/C 因此整個消失;見 ADR 0011)。
 - **5 個固定預設**:`all`(全鍵,預設)/ `home`(家排)/ `home-top`(家排+上排)/ `index-middle`(食指中指)/ `ring-pinky`(無名小指)。
+  - **2026-07-31 修訂**:改為 `all`(全鍵,四排)/ `home` / `top` / `bottom` / `number`——**只沿「排」切**,因為跨排的難度落差遠大於跨指,分排練才有效。同時新增第四排「數字排」(左 `1234`+內側 `5`、右 內側 `6`+`7890`),全鍵鍵池 15→20 鍵/手。舊成績因鍵群與係數基準皆變 ⇒ `SCORES_VERSION` 升 2 整庫作廢。見 ADR 0011〈為何只沿「排」切〉。
 - **實作**:`CompileConfig.keyGroup?` → `assignKeys` → `buildPool(hand, keyGroup)` 依 group 的 `{banks?, fingers?}` 過濾回傳子集,其餘(D'Hondt 攤平、可玩性、determinism)不動。可玩性降級(手指全被佔 → `candidates = pool`)天然只在群內放寬,不借群外鍵(原取捨 2 自動解決)。
 - **UI**:難度選擇畫面(issue 17)加鍵群選擇(編譯前輸入,非 highway 即時滑桿);切換即持久化,選定難度時用當前鍵群 `startSong`。highway 零改動。
 - **持久化**:設定層(issue 12)由「純數值」擴成「數值 + 列舉」,`keyGroup` 存同一 blob,不合法值回退 `all`。

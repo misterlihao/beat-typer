@@ -8,9 +8,9 @@ import { KEY_GROUPS, type DifficultyRef, type KeyGroup } from '../compile/types.
 export const KEY_GROUP_LABELS: Record<KeyGroup, string> = {
   all: '全鍵',
   home: '家排',
-  'home-top': '家排+上排',
-  'index-middle': '食指中指',
-  'ring-pinky': '無名小指',
+  top: '上排',
+  bottom: '下排',
+  number: '數字排',
 };
 
 /** 單一難度的過去最佳成績,顯示就緒(由流程編排層算好:調整後準確率 + 達成鍵群)。 */

@@ -26,17 +26,13 @@ describe('coefficientFor / adjustedAccuracy — 鍵群係數', () => {
     expect(coefficientFor('all')).toBe(1);
     expect(adjustedAccuracy(0.9, 'all')).toBe(0.9);
   });
-  it('小鍵群折算:home 0.667 / home-top 0.833 / index-middle 0.80 / ring-pinky 0.70', () => {
-    expect(coefficientFor('home')).toBeCloseTo(0.6667, 4);
-    expect(coefficientFor('home-top')).toBeCloseTo(0.8333, 4);
-    expect(coefficientFor('index-middle')).toBeCloseTo(0.8, 4);
-    expect(coefficientFor('ring-pinky')).toBeCloseTo(0.7, 4);
+  it('單排鍵群折算 = 0.625(5/20 鍵)——四排池大小相同,故係數相同', () => {
+    for (const g of ['home', 'top', 'bottom', 'number'] as const) {
+      expect(coefficientFor(g)).toBeCloseTo(0.625, 4);
+    }
   });
-  it('係數單調:全鍵 > 家上 > 食中 > 無名小 > 家排', () => {
-    expect(coefficientFor('all')).toBeGreaterThan(coefficientFor('home-top'));
-    expect(coefficientFor('home-top')).toBeGreaterThan(coefficientFor('index-middle'));
-    expect(coefficientFor('index-middle')).toBeGreaterThan(coefficientFor('ring-pinky'));
-    expect(coefficientFor('ring-pinky')).toBeGreaterThan(coefficientFor('home'));
+  it('係數:全鍵 > 任一單排', () => {
+    expect(coefficientFor('all')).toBeGreaterThan(coefficientFor('home'));
   });
 });
 
@@ -63,7 +59,7 @@ describe('applyRun — 併入紀錄', () => {
     expect(improved).toBe(false);
   });
 
-  it('跨鍵群:家排 100%(調整 0.667)輸給全鍵 80%(調整 0.80)', () => {
+  it('跨鍵群:家排 100%(調整 0.625)輸給全鍵 80%(調整 0.80)', () => {
     const prev: ScoreRecord = { bestRawAccuracy: 1.0, bestKeyGroup: 'home', bestMaxCombo: 0, everFullCombo: false };
     const { record, improved } = applyRun(prev, { rawAccuracy: 0.8, keyGroup: 'all', maxCombo: 20, fullCombo: false });
     expect(record.bestRawAccuracy).toBe(0.8);
@@ -76,7 +72,7 @@ describe('applyRun — 併入紀錄', () => {
     const { record, improved } = applyRun(prev, { rawAccuracy: 0.95, keyGroup: 'home', maxCombo: 50, fullCombo: true });
     expect(record.bestMaxCombo).toBe(10); // 家排 combo 50 不解鎖
     expect(record.everFullCombo).toBe(false); // 家排 FC 不解鎖
-    // 家排 0.95 調整後 0.633 < 0.9 → 準確率也沒刷新
+    // 家排 0.95 調整後 0.594 < 0.9 → 準確率也沒刷新
     expect(improved).toBe(false);
   });
 
@@ -96,7 +92,7 @@ describe('applyRun — 併入紀錄', () => {
 });
 
 describe('coerceScores — 容錯回退', () => {
-  const empty = { version: 1, records: {} };
+  const empty = { version: 2, records: {} };
   it('非物件 / null → 空庫', () => {
     expect(coerceScores(null)).toEqual(empty);
     expect(coerceScores('garbage')).toEqual(empty);
@@ -105,13 +101,17 @@ describe('coerceScores — 容錯回退', () => {
   it('版本不符 → 空庫', () => {
     expect(coerceScores({ version: 999, records: { a: {} } })).toEqual(empty);
   });
+  it('v1 舊庫(鍵群改分排前)整庫作廢', () => {
+    const v1 = { version: 1, records: { a: { bestRawAccuracy: 0.9, bestKeyGroup: 'all', bestMaxCombo: 12, everFullCombo: true } } };
+    expect(coerceScores(v1)).toEqual(empty);
+  });
   it('records 非物件 → 空庫', () => {
-    expect(coerceScores({ version: 1, records: null })).toEqual(empty);
+    expect(coerceScores({ version: 2, records: null })).toEqual(empty);
   });
   it('丟棄壞紀錄、保留好的', () => {
     const good: ScoreRecord = { bestRawAccuracy: 0.9, bestKeyGroup: 'all', bestMaxCombo: 12, everFullCombo: true };
     const out = coerceScores({
-      version: 1,
+      version: 2,
       records: {
         ok: good,
         badAcc: { bestRawAccuracy: 'x', bestKeyGroup: 'all', bestMaxCombo: 1, everFullCombo: false },
@@ -123,7 +123,7 @@ describe('coerceScores — 容錯回退', () => {
   });
   it('準確率夾到 0..1、combo 取整非負', () => {
     const out = coerceScores({
-      version: 1,
+      version: 2,
       records: { a: { bestRawAccuracy: 1.5, bestKeyGroup: 'home', bestMaxCombo: 3.9, everFullCombo: false } },
     });
     expect(out.records.a).toEqual({ bestRawAccuracy: 1, bestKeyGroup: 'home', bestMaxCombo: 3, everFullCombo: false });

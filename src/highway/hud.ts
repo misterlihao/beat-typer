@@ -5,19 +5,20 @@ import { glyphOf } from '../compile/mapping.ts';
 import { SETTINGS_SPEC, type Settings } from '../settings/settings.ts';
 import { COLS, KEY_LAYOUT, LANE_SPACING, PLANE_Z, ROWS, ROW_SPACING, laneX, rowY } from './geometry.ts';
 
-// ── 判定平面的靜態目標格線(10×3)+ 淡淡字母標籤,示意鍵盤與手指預備位。 ──
+// ── 判定平面的靜態目標格線(10×4)+ 淡淡字母標籤,示意鍵盤與手指預備位。 ──
 export function buildTargetGrid(): THREE.Group {
   const group = new THREE.Group();
   const halfW = (COLS / 2) * LANE_SPACING;
-  const halfH = (ROWS / 2) * ROW_SPACING;
+  const botY = rowY(0) - ROW_SPACING / 2; // 格線上下界由 rowY 導出(列高非以 0 為中心,見 rowY)
+  const topY = rowY(ROWS - 1) + ROW_SPACING / 2;
 
   const pts: number[] = [];
   for (let c = 0; c <= COLS; c++) {
     const x = c * LANE_SPACING - halfW;
-    pts.push(x, -halfH, PLANE_Z, x, halfH, PLANE_Z);
+    pts.push(x, botY, PLANE_Z, x, topY, PLANE_Z);
   }
   for (let r = 0; r <= ROWS; r++) {
-    const y = r * ROW_SPACING - halfH;
+    const y = botY + r * ROW_SPACING;
     pts.push(-halfW, y, PLANE_Z, halfW, y, PLANE_Z);
   }
   const geo = new THREE.BufferGeometry();

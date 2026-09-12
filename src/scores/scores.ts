@@ -5,7 +5,8 @@ import { keyGroupPoolSize } from '../compile/keyAssignment.ts';
 import { KEY_GROUPS, type KeyGroup } from '../compile/types.ts';
 
 const STORAGE_KEY = 'beat-typer:scores';
-const SCORES_VERSION = 1;
+// v2(鍵群改為分排):鍵群清單與全鍵鍵池(15→20 鍵/手)都變了,舊紀錄的鍵群與係數皆不可比 → 整庫作廢重來。
+const SCORES_VERSION = 2;
 
 /** 一張譜(一個歌曲身分)的歷來最佳。調整後準確率即時導出,不存。 */
 export interface ScoreRecord {

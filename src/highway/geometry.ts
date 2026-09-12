@@ -3,13 +3,14 @@
 
 export interface KeyLayout {
   readonly col: number; // 欄 0..9,由左到右
-  readonly row: number; // 列 0=下 1=家 2=上
+  readonly row: number; // 列 0=下 1=家 2=上 3=數字
 }
 
 // ── 鍵盤版面:實體按鍵碼 → (欄, 列)。唯一的幾何真實來源。 ──
 export const KEY_LAYOUT: Readonly<Record<string, KeyLayout>> = buildLayout();
 function buildLayout(): Record<string, KeyLayout> {
   const rows: [row: number, codes: string[]][] = [
+    [3, ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0']],
     [2, ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT', 'KeyY', 'KeyU', 'KeyI', 'KeyO', 'KeyP']],
     [1, ['KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyL', 'Semicolon']],
     [0, ['KeyZ', 'KeyX', 'KeyC', 'KeyV', 'KeyB', 'KeyN', 'KeyM', 'Comma', 'Period', 'Slash']],
@@ -26,9 +27,10 @@ export const FAR_Z = -40; // 音符生成的遠端(在霧內,一出生即清楚�
 export const PLANE_Z = 0; // 判定平面
 export const NOTE_SIZE = 0.72;
 export const COLS = 10;
-export const ROWS = 3;
+export const ROWS = 4;
 
 export const laneX = (col: number): number => (col - (COLS - 1) / 2) * LANE_SPACING;
+// 第四排(數字排)往**上**長,字母三排維持原高度:相機是低角度俯視,往下長會把下排推出畫面下緣。
 export const rowY = (row: number): number => (row - 1) * ROW_SPACING;
 
 const clamp = (v: number, min: number, max: number): number => Math.min(max, Math.max(min, v));

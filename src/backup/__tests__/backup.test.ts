@@ -68,7 +68,7 @@ describe('parseBackup — 認檔 + salvage', () => {
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.data.settings.keyGroup).toBe('all');
-      expect(r.data.scores).toEqual({ version: 1, records: {} });
+      expect(r.data.scores).toEqual({ version: 2, records: {} });
       expect(r.data.recentBsr).toEqual([]);
     }
   });
@@ -79,7 +79,7 @@ describe('parseBackup — 認檔 + salvage', () => {
       version: 1,
       data: {
         scores: {
-          version: 1,
+          version: 2,
           records: {
             ok: rec({ bestRawAccuracy: 0.8 }),
             bad: { bestRawAccuracy: 'x', bestKeyGroup: 'all', bestMaxCombo: 1, everFullCombo: false },
