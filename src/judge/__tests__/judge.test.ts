@@ -14,6 +14,10 @@ const up = (t: number, key: string): InputEvent => ({ t, key, up: true });
 function hnote(tSec: number, key: string, holdEndSec: number): Note {
   return { tSec, key, kind: 'hold', holdEndSec, hand: 'left', finger: 'index', bank: 'home' };
 }
+// 無尾部判定的長按(issue 27):尾端沒連接真音符,放開時機不影響判定。
+function hnoteNoTail(tSec: number, key: string, holdEndSec: number): Note {
+  return { tSec, key, kind: 'hold', holdEndSec, tailJudged: false, hand: 'left', finger: 'index', bank: 'home' };
+}
 const cfg: JudgeConfig = DEFAULT_JUDGE_CONFIG; // perfect 0.045、good 0.09、offset 0
 
 describe('judge — 節奏分級', () => {
@@ -217,6 +221,36 @@ describe('judge — 長按(hold)判定', () => {
     // press 音符 + 一個無對應 hold 的放開 → 放開被忽略、不計多餘、press 照常命中。
     const { summary } = judge([pnote(1, 'KeyA')], [ev(1, 'KeyA'), up(1.5, 'KeyA')], cfg);
     expect(summary).toMatchObject({ accuracy: 1, extras: 0, fullCombo: true });
+  });
+});
+
+describe('judge — 無尾部判定的長按(issue 27)', () => {
+  // 頭部 1.0、尾部 2.0,tailJudged:false——與上面同結構的 hold 對照,唯一差異是放開時機不判 Miss。
+  it('提早放開(遠早於破壞點)不判 Miss,維持頭部 Perfect、combo 不斷', () => {
+    const { judgments, summary } = judge([hnoteNoTail(1, 'KeyA', 2)], [ev(1, 'KeyA'), up(1.01, 'KeyA')], cfg);
+    expect(judgments[0]).toMatchObject({ noteIndex: 0, result: 'perfect' });
+    expect(summary).toMatchObject({ accuracy: 1, maxCombo: 1, combo: 1, fullCombo: true });
+  });
+
+  it('從不放開 → 一樣在尾部自動鎖定命中(與有尾部判定的行為一致)', () => {
+    const { judgments, summary } = judge([hnoteNoTail(1, 'KeyA', 2)], [ev(1, 'KeyA')], cfg);
+    expect(judgments[0]).toMatchObject({ result: 'perfect' });
+    expect(summary).toMatchObject({ accuracy: 1, fullCombo: true });
+  });
+
+  it('頭部判 Good、提早放開仍維持 Good(不降級、不判 Miss)', () => {
+    const { judgments } = judge([hnoteNoTail(1, 'KeyA', 2)], [ev(0.93, 'KeyA'), up(1.01, 'KeyA')], cfg);
+    expect(judgments[0]).toMatchObject({ result: 'good' });
+  });
+
+  it('頭部沒按 → 仍整顆 Miss(無尾部判定只影響放開規則,不影響頭部窗)', () => {
+    expect(judge([hnoteNoTail(1, 'KeyA', 2)], [], cfg).judgments[0]).toMatchObject({ result: 'miss' });
+  });
+
+  it('release() 回傳 kind 恆為 safe,不會是 break', () => {
+    const j = new Judger([hnoteNoTail(1, 'KeyA', 2)], cfg);
+    j.press(ev(1, 'KeyA'));
+    expect(j.release(up(1.001, 'KeyA'))).toMatchObject({ kind: 'safe', noteIndex: 0 });
   });
 });
 

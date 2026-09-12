@@ -61,12 +61,13 @@ function makeOcclusionTestChart(): TypingChart {
   ];
 }
 
-// DEV-only:?holdtest 合成含長按的譜面,供 playtest 驗長按判定/回饋(issue 08)。
-// A(KeyF)撐住 → 鎖定;B(KeyJ)提早放開 → 破。時間落在內建範例音訊(~4s)內。
+// DEV-only:?holdtest 合成含長按的譜面,供 playtest 驗長按判定/回饋(issue 08、issue 27)。
+// A(KeyF)撐住 → 鎖定;B(KeyJ)提早放開 → 破;C(KeyD)無尾部判定,提早放開不罰。時間落在內建範例音訊(~4s)內。
 function makeHoldTestChart(): TypingChart {
   return [
-    { tSec: 0.6, key: 'KeyF', kind: 'hold', holdEndSec: 2.0, hand: 'left', finger: 'index', bank: 'home' },
-    { tSec: 2.5, key: 'KeyJ', kind: 'hold', holdEndSec: 3.6, hand: 'right', finger: 'index', bank: 'home' },
+    { tSec: 0.6, key: 'KeyF', kind: 'hold', holdEndSec: 2.0, tailJudged: true, hand: 'left', finger: 'index', bank: 'home' },
+    { tSec: 2.5, key: 'KeyJ', kind: 'hold', holdEndSec: 3.6, tailJudged: true, hand: 'right', finger: 'index', bank: 'home' },
+    { tSec: 0.6, key: 'KeyD', kind: 'hold', holdEndSec: 2.0, tailJudged: false, hand: 'left', finger: 'middle', bank: 'home' },
   ];
 }
 

@@ -21,6 +21,11 @@ export interface Note {
   readonly kind: NoteKind;
   /** 僅 hold:長按結束秒數。 */
   readonly holdEndSec?: number;
+  /**
+   * 僅 hold:尾端是否連接一顆真的音符(見 docs/adr/0010、issue 27)。true=現行兩道閘門
+   * 判定(提早放開 Miss);false=頭部命中即定案,放開時機不影響判定。
+   */
+  readonly tailJudged?: boolean;
   // ── 渲染中繼:hand 由顏色決定;finger/bank 為被指派鍵的屬性(高速公路實際靠 key 定道)。──
   readonly hand: Hand;
   readonly finger: Finger;

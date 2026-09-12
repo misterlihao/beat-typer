@@ -32,3 +32,7 @@
 - compile 穩健性:v3 弧線 `holdEndSec ≤ tSec`(壞資料)直接當 `kind:'press'`,防 3D 反向長條;非判定規則。
 - 尾部完成音沿用 `playTick('high')`(對齊鎖定時機,不綁物理 keyup);破不響。
 - 3D:按住期間目標格持續發光(新增不衰減模式)+ 長條提亮;鎖定金脈衝、破紅閃。
+
+## 延伸(issue 27,2026-09-12)
+
+本 ADR 的模型只適用於**弧線尾端連接真的音符**的長按(`tailJudged:true`)。issue 27 依此模型不變,另外定義了 `tailJudged:false` 的分支(尾端沒連接真音符):放開閘門永遠視為安全,頭部命中即定案、不因放開時機而 Miss;尾部完成音也只屬於 `tailJudged:true`。判定引擎沿用同一套「一個判定單位、兩道閘門」機制,`release()` 只是對 `tailJudged:false` 略過破壞點檢查,本 ADR 的核心推理不受影響。細節見 `docs/issues/27-hold-tail-judgment-split.md`。

@@ -4,12 +4,18 @@
 // 判定邏輯不在此重寫(見 src/judge/judge.ts)。遊戲流程狀態機是純函式(見 highwayState.ts),
 // 本檔只負責:Judger 接線、rAF 動畫迴圈、把狀態機的 effect 接上真正的音訊 / DOM / 計時器副作用。
 import * as THREE from 'three';
-import type { AudioPlayer } from '../audio/player.ts';
+import type { AudioPlayer, HoldTone } from '../audio/player.ts';
 import type { LightShow } from '../compile/lightShow.ts';
 import { glyphOf } from '../compile/mapping.ts';
 import type { Hand, TypingChart } from '../compile/types.ts';
 import { Judger } from '../judge/judge.ts';
-import { DEFAULT_JUDGE_CONFIG, type Grade, type JudgeSummary, type PressOutcome } from '../judge/types.ts';
+import {
+  DEFAULT_JUDGE_CONFIG,
+  type Grade,
+  type JudgeSummary,
+  type PressOutcome,
+  type ReleaseOutcome,
+} from '../judge/types.ts';
 import { loadSettings, patchSettings } from '../settings/settings.ts';
 import {
   COLS,
@@ -78,6 +84,7 @@ export interface ResultsBest {
 }
 
 const HAND_COLOR: Record<Hand, number> = { left: 0xe0503f, right: 0x2e86d6 };
+const NO_TAIL_JUDGE_OPACITY = 0.4; // 無尾部判定長按 body 的透明度(issue 27;實跑微調)
 
 // 判定回饋字樣與顏色。
 const FLASH_LABEL = { perfect: 'PERFECT', good: 'GOOD', miss: 'MISS' } as const;
@@ -139,8 +146,19 @@ export function startHighway(
   // 刻意不標 JudgeConfig(其 offsetSec 為 readonly);可變物件仍可傳給 Judger。
   const judgeConfig = { ...DEFAULT_JUDGE_CONFIG, offsetSec: settings.offsetSec };
   let judger: Judger | null = null;
-  // 持續中的長按:chart 索引 → 頭部結果(決定持續發光顏色)。頭部命中時加入,鎖定/破時移除。
-  const heldNotes = new Map<number, 'perfect' | 'good'>();
+  /** `heldNotes` 的一筆:頭部命中結果 + 持續音把手 + 是否已放開,皆會隨生命週期變動(見下)。 */
+  interface HeldHoldState {
+    result: 'perfect' | 'good';
+    released: boolean;
+    tone: HoldTone;
+  }
+  /**
+   * 持續中的長按:chart 索引 → 頭部結果 + 持續音把手 + 是否已放開(issue 27)。頭部命中時加入,
+   * 真正定案(鎖定或破,由 `resultAt` 轉態偵測)時移除。`released` 由 `onKeyUp` 同步設定,
+   * 讓「目標格持續發光 / 持續音」在玩家放開的當下就停,不必等到定案那一刻——兩者刻意分開追蹤:
+   * 定案時機(尾部完成音 + 金脈衝)永遠對齊 `holdEndSec`,不受物理 keyup 早晚影響(見 ADR 0010)。
+   */
+  const heldNotes = new Map<number, HeldHoldState>();
 
   // 自動演奏(?auto):音訊時鐘一到就派合成按鍵。記已派過的音符,避免重複派;重玩時清空。
   const autoPlay = deps.autoPlay ?? false;
@@ -232,7 +250,12 @@ export function startHighway(
   chart.forEach((note, index) => {
     const layout = KEY_LAYOUT[note.key];
     if (!layout) return; // 未知鍵碼,略過(理論上不會發生)
-    const mat = new THREE.MeshLambertMaterial({ color: HAND_COLOR[note.hand] });
+    // 無尾部判定的長按(issue 27):body 半透明,讓玩家打之前就能看出「這條放開也沒關係」。
+    const noTailJudge = note.kind === 'hold' && note.tailJudged === false;
+    const mat = new THREE.MeshLambertMaterial({
+      color: HAND_COLOR[note.hand],
+      ...(noTailJudge ? { transparent: true, opacity: NO_TAIL_JUDGE_OPACITY } : {}),
+    });
     const sprite = makeGlyphSprite(glyphOf(note.key), '#ffffff', 0.85, true);
     sprite.visible = false;
     const base = { index, note, col: layout.col, row: layout.row, sprite, material: mat };
@@ -483,20 +506,23 @@ export function startHighway(
 
     // 長按:持續發光 + 偵測鎖定/破(judger 內部由 keyup→release 或尾部 expiry 定案)。
     if (judger) {
-      for (const [idx, res] of heldNotes) {
+      for (const [idx, held] of heldNotes) {
         const r = judger.resultAt(idx);
         if (r === null) {
-          activateCell(chart[idx]!.key, CELL_COLOR[res], CELL_PEAK[res]); // 按住中 → 目標格續亮(不衰減)
+          // 尚未真正定案:已放開(released)的不再續亮/續響,靜靜等定案那一刻(見 issue 27)。
+          if (!held.released) activateCell(chart[idx]!.key, CELL_COLOR[held.result], CELL_PEAK[held.result]);
           continue;
         }
         heldNotes.delete(idx);
         brightenBody(idx, false);
+        held.tone.stop(); // 保底:多半在 onKeyUp 已停過,這裡處理「從不放開,尾部自動鎖定」的情形
         if (r.result === 'miss') {
           flash('miss'); // 提早放開破
           activateCell(chart[idx]!.key, CELL_COLOR.miss, CELL_PEAK.miss);
         } else {
           activateCell(chart[idx]!.key, CELL_COLOR[r.result], CELL_PEAK[r.result]); // 鎖定金/綠脈衝
-          player.playTick('high'); // 尾部完成音(對齊鎖定時機,不綁物理 keyup)
+          // 尾部完成音只屬於有尾部判定的長按(對齊鎖定時機,不綁物理 keyup;見 issue 27、ADR 0010)。
+          if (chart[idx]!.tailJudged !== false) player.playTick('high');
         }
         showCombo();
         showGrade(); // 長按鎖定/破改變判定集合 → 更新即時評級
@@ -541,22 +567,33 @@ export function startHighway(
     if (outcome.kind !== 'extra') flash(outcome.kind);
     showCombo();
     showGrade(); // 命中/敲錯改變判定集合 → 更新即時評級(extra 無變化,重算無妨)
-    // 長按頭部命中 → 進「持續中」:持續發光(loop 維持)+ 長條提亮,直到鎖定/破。
+    // 長按頭部命中 → 進「持續中」:持續發光(loop 維持)+ 長條提亮 + 起持續音,直到放開/鎖定/破。
     if (
       (outcome.kind === 'perfect' || outcome.kind === 'good') &&
       chart[outcome.noteIndex]!.kind === 'hold'
     ) {
-      heldNotes.set(outcome.noteIndex, outcome.kind);
+      heldNotes.set(outcome.noteIndex, { result: outcome.kind, released: false, tone: player.startHoldTone() });
       brightenBody(outcome.noteIndex, true);
     }
   };
   window.addEventListener('keydown', onKeyDown);
 
-  // 放開:餵 release() 更新判定狀態;破/鎖定的視覺與音效統一在 loop 以 resultAt 轉態偵測(免重複)。
+  // 放開:餵 release() 更新判定狀態。'safe'/'break' 當下就停發光/持續音(見 issue 27)——
+  // 定案(尾部完成音 + 金脈衝,或破的紅閃)仍統一在 loop 以 resultAt 轉態偵測,對齊鎖定時機。
   const onKeyUp = (e: KeyboardEvent) => {
     if (!judger || !player.isPlaying) return;
     if (!(e.code in KEY_LAYOUT)) return;
-    judger.release({ t: player.positionSec, key: e.code, up: true });
+    const outcome: ReleaseOutcome = judger.release({ t: player.positionSec, key: e.code, up: true });
+    if (outcome.kind === 'safe' || outcome.kind === 'break') {
+      // 放開當下立刻停發光/持續音(issue 27);真正定案(完成音/金脈衝/紅閃)留給 loop 靠
+      // resultAt 轉態偵測,不在此提早觸發——完成音要對齊鎖定時機,不能提前到 keyup(見 ADR 0010)。
+      const held = heldNotes.get(outcome.noteIndex);
+      if (held) {
+        held.released = true;
+        held.tone.stop();
+        brightenBody(outcome.noteIndex, false);
+      }
+    }
     showGrade(); // 提早放開破壞長按會改判定集合 → 更新即時評級
   };
   window.addEventListener('keyup', onKeyUp);
@@ -681,7 +718,10 @@ export function startHighway(
       mesh.scale.set(0.0001, 0.0001, 1);
     }
     for (const v of visuals) setVisible(v, false); // loop 首幀會重新定位
-    for (const idx of heldNotes.keys()) brightenBody(idx, false); // 還原長條提亮
+    for (const [idx, held] of heldNotes) {
+      brightenBody(idx, false); // 還原長條提亮
+      held.tone.stop(); // 重玩/重置時中止任何還在響的持續音,不留孤兒音源
+    }
     heldNotes.clear();
     autoPressed.clear(); // 自動演奏歸零:重玩時重新從頭派按鍵
     autoReleased.clear();
@@ -759,11 +799,19 @@ export function startHighway(
           startLoop();
           setCursorHidden(true);
           clearTimeout(cursorIdleTimer);
+          // 續玩:暫停時被停掉的持續音(仍在按住、尚未放開)重新起一顆——舊的振盪器已停止、
+          // 不能重用,見下方 'pause' 分支。已放開的不重啟,維持靜音等定案。
+          for (const held of heldNotes.values()) {
+            if (!held.released) held.tone = player.startHoldTone();
+          }
         }
         break;
 
       case 'pause':
         player.pause(); // 凍結 positionSec → 暫停期間不流逝、迴圈停 → 無假 Miss
+        // rAF 迴圈停了,但持續音是獨立的音訊節點、不會跟著停——暫停中不該還聽到長按持續音。
+        // 只停音源,不清 heldNotes/released:續玩時對還在按住的那些重新起一顆(見上方 'launch')。
+        for (const held of heldNotes.values()) held.tone.stop();
         stopLoop();
         revealCursor();
         showOverlay('paused');
@@ -784,6 +832,13 @@ export function startHighway(
         positionNotes(player.positionSec);
         renderer.render(scene, camera);
         stopLoop();
+        // rAF 迴圈已停,不會再有機會靠 loop 的 resultAt 轉態偵測收尾——這裡補做,避免持續音
+        // 孤兒殘留(理論上 judger.expiry 已把所有長按鎖定,heldNotes 理應已空,此為保底)。
+        for (const [idx, held] of heldNotes) {
+          brightenBody(idx, false);
+          held.tone.stop();
+        }
+        heldNotes.clear();
         revealCursor();
         // 寫入成績庫(編排層負責身分/儲存)並取回最佳供結算顯示;無 judger/onComplete 則不顯示。
         lastBest = judger ? (deps.onComplete?.(judger.summary()) ?? null) : null;
@@ -875,6 +930,7 @@ export function startHighway(
     window.removeEventListener('keydown', onControlKey);
     document.removeEventListener('visibilitychange', onVisibility);
     player.onEnded = null; // 卸載前解除,避免切到預覽後仍觸發本視圖的結束處理
+    for (const held of heldNotes.values()) held.tone.stop(); // 保底:卸載時中止任何還在響的持續音
     container.removeEventListener('pointermove', onPointerMove);
     lightRig.dispose(); // 燈光 rig:移除發光體、還原背景/fog、釋放貼圖(issue 24)
     boxGeo.dispose();

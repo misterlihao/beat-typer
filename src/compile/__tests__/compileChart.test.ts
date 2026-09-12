@@ -339,6 +339,30 @@ describe('compileChart — v3 弧線 → hold', () => {
     expect(chart[0]!.holdEndSec).toBeCloseTo(1.0, 10); // tail beat 2 → 1.0s(BPM120)
   });
 
+  it('尾端沒有 colorNote 重合 → tailJudged:false(issue 27)', () => {
+    const chart = compileSliders([], [{ c: 0, b: 0, x: 0, y: 1, tb: 2, tx: 0, ty: 1 }]);
+    expect(chart[0]!.tailJudged).toBe(false);
+  });
+
+  it('尾端座標與某顆 colorNote 重合(同 beat/欄/列/顏色)→ tailJudged:true(issue 27)', () => {
+    const chart = compileSliders(
+      [noteV3(2, 0, 1, 0)], // 與 tail(beat2,col0,row1,紅)重合;正好也是「與 tail 重疊被濾除」的既有情境
+      [{ c: 0, b: 0, x: 0, y: 1, tb: 2, tx: 0, ty: 1 }],
+    );
+    expect(chart).toHaveLength(1); // 該 colorNote 由弧線接手,不另外出現
+    expect(chart[0]!.tailJudged).toBe(true);
+  });
+
+  it('尾端座標與 colorNote 重合但顏色不同 → 不算重合,tailJudged:false(issue 27)', () => {
+    const chart = compileSliders(
+      [noteV3(2, 0, 1, 1)], // 同 beat/欄/列,但顏色是藍(1)≠弧線的紅(0)
+      [{ c: 0, b: 0, x: 0, y: 1, tb: 2, tx: 0, ty: 1 }],
+    );
+    expect(chart).toHaveLength(2); // 顏色不同不算重合,colorNote 正常保留
+    const hold = chart.find((n) => n.kind === 'hold')!;
+    expect(hold.tailJudged).toBe(false);
+  });
+
   it('與 head 精確重疊的 colorNote 被濾除(不 press+hold 並存)', () => {
     const chart = compileSliders(
       [noteV3(0, 0, 1, 0), noteV3(1, 1, 1, 1)], // 第一顆與 head 重疊 → 濾除;第二顆保留

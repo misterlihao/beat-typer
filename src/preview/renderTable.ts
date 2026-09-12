@@ -75,6 +75,7 @@ export function renderPreview(
         <td>${BANK_LABEL[n.bank]}</td>
         <td>${n.kind}</td>
         <td>${n.holdEndSec === undefined ? '' : n.holdEndSec.toFixed(3)}</td>
+        <td>${n.tailJudged === undefined ? '' : n.tailJudged ? '有' : '無'}</td>
       </tr>`;
     })
     .join('');
@@ -89,7 +90,7 @@ export function renderPreview(
     <table class="bt-table">
       <thead><tr>
         <th>#</th><th>tSec</th><th>beat</th><th>字形</th><th>key(code)</th>
-        <th>手</th><th>指</th><th>排</th><th>kind</th><th>holdEnd</th>
+        <th>手</th><th>指</th><th>排</th><th>kind</th><th>holdEnd</th><th>尾部判定</th>
       </tr></thead>
       <tbody>${rowsHtml}</tbody>
     </table>`;

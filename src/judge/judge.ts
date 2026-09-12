@@ -159,13 +159,16 @@ export class Judger {
     for (const [i, h] of this.activeHolds) {
       if (h.released) continue;
       if (this.chart[i]!.key !== event.key) continue;
-      if (event.t < this.breakPoint(i) - EPS) {
+      // 無尾部判定(見 issue 27、docs/adr/0010):尾端沒連接真音符,放開時機不影響判定——
+      // 永遠視為撐過,略過破壞點檢查。`tailJudged !== false` 涵蓋 true 與(理論上不會出現的)undefined。
+      if (this.chart[i]!.tailJudged !== false && event.t < this.breakPoint(i) - EPS) {
         // 提早放開 → 破:判 Miss、斷 combo。
         this.activeHolds.delete(i);
         this.resolve(i, 'miss');
         return { kind: 'break', noteIndex: i };
       }
-      // 撐過破壞點 → 安全;結果留待 expiry 在尾部鎖定。標記已放,忽略後續同鍵放開。
+      // 撐過破壞點(或無尾部判定,一律視為安全)→ 安全;結果留待 expiry 在尾部鎖定。
+      // 標記已放,忽略後續同鍵放開。
       h.released = true;
       return { kind: 'safe', noteIndex: i };
     }

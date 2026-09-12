@@ -56,6 +56,8 @@ interface NormalizedHold extends NormalizedNote {
   readonly endBeat: number;
   readonly endColumn: number;
   readonly endLayer: number;
+  /** 尾端是否連接一顆真的 colorNote(見 issue 27、docs/adr/0010)。 */
+  readonly tailJudged: boolean;
 }
 interface NormalizedDiff {
   readonly presses: NormalizedNote[];
@@ -89,26 +91,40 @@ function normalizeV3(diff: RawDifficulty, filename: string): NormalizedDiff {
     throw new Error(`難度檔「${filename}」缺少 colorNotes 陣列`);
   }
 
+  const cell = (beat: number, column: number, layer: number, color: number) =>
+    `${beat}|${column}|${layer}|${color}`;
+
+  // 真正的音符座標集合:弧線尾端若剛好落在這裡面才算「連接真音符」→ 有尾部判定(見 issue 27)。
+  const colorNoteCells = new Set<string>();
+  for (const n of diff.colorNotes as RawV3Note[]) {
+    const color = n.c ?? 0;
+    if (color !== 0 && color !== 1) continue;
+    colorNoteCells.add(cell(n.b ?? 0, n.x ?? 0, n.y ?? 0, color));
+  }
+
   const holds: NormalizedHold[] = [];
   for (const s of (Array.isArray(diff.sliders) ? diff.sliders : []) as RawV3Slider[]) {
     // v3 對預設值採「省略」:缺 c 即紅(0/左手)。缺這行會讓所有左手弧線消失。
     const color = s.c ?? 0;
     if (color !== 0 && color !== 1) continue;
+    const endBeat = s.tb ?? 0;
+    const endColumn = s.tx ?? 0;
+    const endLayer = s.ty ?? 0;
     holds.push({
       beat: s.b ?? 0,
       column: s.x ?? 0,
       layer: s.y ?? 0,
       color,
-      endBeat: s.tb ?? 0,
-      endColumn: s.tx ?? 0,
-      endLayer: s.ty ?? 0,
+      endBeat,
+      endColumn,
+      endLayer,
+      tailJudged: colorNoteCells.has(cell(endBeat, endColumn, endLayer, color)),
     });
   }
 
-  // 弧線 head/tail 佔用的 (beat,欄,列,顏色) 集合,用來濾掉重疊的 colorNote。
+  // 弧線 head/tail 佔用的 (beat,欄,列,顏色) 集合,用來濾掉重疊的 colorNote(不論尾端有無連接
+  // 真音符,head/tail 佔用的位置都不該再被當獨立 press 出現——見 issue 03)。
   const occupied = new Set<string>();
-  const cell = (beat: number, column: number, layer: number, color: number) =>
-    `${beat}|${column}|${layer}|${color}`;
   for (const h of holds) {
     occupied.add(cell(h.beat, h.column, h.layer, h.color));
     occupied.add(cell(h.endBeat, h.endColumn, h.endLayer, h.color));
@@ -217,7 +233,7 @@ export function compileChart(
     if (holdEndSec <= tSec) {
       unassigned.push({ tSec, hand: handOf(h.color), kind: 'press' });
     } else {
-      unassigned.push({ tSec, hand: handOf(h.color), kind: 'hold', holdEndSec });
+      unassigned.push({ tSec, hand: handOf(h.color), kind: 'hold', holdEndSec, tailJudged: h.tailJudged });
     }
   }
 

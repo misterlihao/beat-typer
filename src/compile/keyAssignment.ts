@@ -14,6 +14,8 @@ export interface UnassignedNote {
   readonly hand: Hand;
   readonly kind: 'press' | 'hold';
   readonly holdEndSec?: number;
+  /** 僅 hold:尾端是否連接一顆真的音符(見 issue 27)。 */
+  readonly tailJudged?: boolean;
 }
 
 // 教學權重因子:家排>上排>下排>數字排、食指/中指>無名/小指;內側鍵(食指 reach)再打折。
@@ -126,6 +128,7 @@ export function assignKeys(
       key: best.key,
       kind: n.kind,
       ...(n.holdEndSec !== undefined ? { holdEndSec: n.holdEndSec } : {}),
+      ...(n.tailJudged !== undefined ? { tailJudged: n.tailJudged } : {}),
       hand,
       finger: best.finger,
       bank: best.bank,

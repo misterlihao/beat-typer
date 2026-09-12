@@ -2,6 +2,17 @@
 // AudioContext.currentTime 為主時鐘,供 preview 的 playhead 與日後判定對齊。
 // 不含遊戲邏輯;compileChart 不碰音訊(見 docs/adr/0004)。
 
+/**
+ * `startHoldTone` 回傳的控制把手:呼叫端負責在該停的時機呼叫一次 `stop()`。
+ * 命名刻意避開「Sustain」——CONTEXT.md 的「持續段 (Sustain)」另指長按頭到尾的區段,語意不同。
+ */
+export interface HoldTone {
+  stop(): void;
+}
+
+/** `stop()` 呼叫兩次以上是安全的(第二次以後無效果),避免呼叫端要自己追蹤是否已停過。 */
+const NOOP_HOLD_TONE: HoldTone = { stop: () => {} };
+
 export class AudioPlayer {
   private ctx: AudioContext | null = null;
   private buffer: AudioBuffer | null = null;
@@ -28,6 +39,12 @@ export class AudioPlayer {
    */
   private static readonly MUSIC_GAIN = 0.5;
   private musicGainNode: GainNode | null = null;
+
+  // ── 長按持續音(issue 27)常數:低頻正弦、明顯區別於 playTick 的高頻三角波。 ──
+  private static readonly HOLD_TONE_FREQ = 220; // Hz,低頻嗡鳴,不與 tick 的 700-2000Hz 區間重疊
+  private static readonly HOLD_TONE_FADE_SEC = 0.05; // 起訖淡入/淡出時長,避免喀聲
+  /** 持續音在同樣振幅下聽感比短促 tick 響亮得多(時長遠超過 tick 的 ~45ms),故額外壓低。 */
+  private static readonly HOLD_TONE_GAIN_SCALE = 0.35;
 
   private ensureCtx(): AudioContext {
     this.ctx ??= new AudioContext();
@@ -134,6 +151,41 @@ export class AudioPlayer {
     osc.connect(gain).connect(ctx.destination);
     osc.start(t);
     osc.stop(t + 0.06);
+  }
+
+  /**
+   * 起一個持續音,供長按過程中提示「還按著」(issue 27);音色與 `playTick` 明顯不同(低頻正弦,
+   * 非高頻三角波),不分 high/low。呼叫端須在該停的時機(放開/鎖定/破)呼叫回傳把手的 `stop()`,
+   * 不停會一直響下去。淡入/淡出各數十 ms,避免起訖喀聲。音量共用 `tickVolume`(見該欄位說明),
+   * 但持續音在同樣振幅下聽感比短促的 tick 響亮得多,故乘上 HOLD_TONE_GAIN_SCALE 額外壓低。
+   */
+  startHoldTone(): HoldTone {
+    if (!this.ctx || this.ctx.state !== 'running') return NOOP_HOLD_TONE; // 僅在音訊已啟動時發聲
+    const peak =
+      AudioPlayer.MAX_TICK_GAIN * AudioPlayer.HOLD_TONE_GAIN_SCALE * Math.max(0, Math.min(1, this.tickVolume));
+    if (peak < 0.001) return NOOP_HOLD_TONE; // 靜音:不發聲
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(AudioPlayer.HOLD_TONE_FREQ, t);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(peak, t + AudioPlayer.HOLD_TONE_FADE_SEC);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t);
+    let stopped = false;
+    return {
+      stop: () => {
+        if (stopped) return; // 保證 stop() 呼叫兩次以上安全
+        stopped = true;
+        const now = ctx.currentTime;
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), now); // 從當下音量接續淡出,避免跳變喀聲
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + AudioPlayer.HOLD_TONE_FADE_SEC);
+        osc.stop(now + AudioPlayer.HOLD_TONE_FADE_SEC + 0.01);
+      },
+    };
   }
 
   private stopSource(): void {
