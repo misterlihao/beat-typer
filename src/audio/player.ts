@@ -40,11 +40,34 @@ export class AudioPlayer {
   private static readonly MUSIC_GAIN = 0.5;
   private musicGainNode: GainNode | null = null;
 
-  // ── 長按持續音(issue 27)常數:低頻正弦、明顯區別於 playTick 的高頻三角波。 ──
-  private static readonly HOLD_TONE_FREQ = 220; // Hz,低頻嗡鳴,不與 tick 的 700-2000Hz 區間重疊
-  private static readonly HOLD_TONE_FADE_SEC = 0.05; // 起訖淡入/淡出時長,避免喀聲
-  /** 持續音在同樣振幅下聽感比短促 tick 響亮得多(時長遠超過 tick 的 ~45ms),故額外壓低。 */
-  private static readonly HOLD_TONE_GAIN_SCALE = 0.35;
+  /**
+   * 長按持續音(issue 27)的音色設計參數,源自外部調音工具的 `hitParams`——原表是一次性的
+   * 「打擊/撥弦」音效設計,這裡改成起音後直接維持、按住期間持續播放,放開才進入釋音。語意:
+   * - frequency:基音頻率(Hz)。
+   * - ratio:疊加的第二個諧波音頻率 = frequency * ratio(非整數比 → 不諧和的鐘聲感)。
+   * - brightness:0..1,第二諧波音相對基音的音量比例(音色亮度/泛音量)。
+   * - shimmer:0..1,疊加在 frequency*4.07 的高頻泛音音量(金屬感的高頻閃爍)。
+   * - attack(ms):音量線性升到峰值所需時間,升到峰值後維持不變(持續播放)。
+   * - decay(ms):放開(`stop()`)後的釋音(release)淡出時間——原表是「一次性衰減時間常數」,
+   *   改成持續音設計後重新賦予意義為釋音時間。
+   * - sweep:半音數,起音瞬間音高從 frequency*2^(sweep/12) 在 35ms 內滑到 frequency(0 = 無滑音)。
+   * - click/clickDecay:起音疊加的高通白噪音「喀」聲強度與其衰減時間(ms);click=0 時不發聲,只響一次。
+   *
+   * 原表還有 `volume`、`tail`、`delay` 三個欄位:`volume` 改用遊戲既有的 `tickVolume` 設定(見
+   * `startHoldTone`),不採用原表校準的絕對值;`tail`/`delay`(回音分身)已拿掉——按住期間持續
+   * 開著的回音會疊出干涉/顫音感,不想要那個效果,故不再套用回音網路。
+   */
+  private static readonly HOLD_TONE = {
+    frequency: 1318.5,
+    decay: 500,
+    sweep: 0,
+    brightness: 0.8,
+    ratio: 1.26,
+    shimmer: 0,
+    attack: 3,
+    click: 0,
+    clickDecay: 3,
+  } as const;
 
   private ensureCtx(): AudioContext {
     this.ctx ??= new AudioContext();
@@ -154,36 +177,93 @@ export class AudioPlayer {
   }
 
   /**
-   * 起一個持續音,供長按過程中提示「還按著」(issue 27);音色與 `playTick` 明顯不同(低頻正弦,
-   * 非高頻三角波),不分 high/low。呼叫端須在該停的時機(放開/鎖定/破)呼叫回傳把手的 `stop()`,
-   * 不停會一直響下去。淡入/淡出各數十 ms,避免起訖喀聲。音量共用 `tickVolume`(見該欄位說明),
-   * 但持續音在同樣振幅下聽感比短促的 tick 響亮得多,故乘上 HOLD_TONE_GAIN_SCALE 額外壓低。
+   * 起一個長按持續音,供長按過程中提示「還按著」(issue 27);音色與 `playTick` 明顯不同(鐘聲式
+   * 音色,非高頻三角波),不分 high/low。起音(attack)後直接維持在該音量持續播放,不會自己衰減,
+   * 一路響到呼叫端在該停的時機(放開/鎖定/破)呼叫回傳把手的 `stop()`——此時才依 `decay`
+   * 當作釋音(release)時間淡出。音量取自遊戲的 `tickVolume` 設定再減半(不用調音工具原表的
+   * `volume`,那個值只在獨立測試頁校過,搬進遊戲的混音裡會被 tick/音樂蓋過)。
    */
   startHoldTone(): HoldTone {
     if (!this.ctx || this.ctx.state !== 'running') return NOOP_HOLD_TONE; // 僅在音訊已啟動時發聲
-    const peak =
-      AudioPlayer.MAX_TICK_GAIN * AudioPlayer.HOLD_TONE_GAIN_SCALE * Math.max(0, Math.min(1, this.tickVolume));
+    const peak = Math.max(0, Math.min(1, this.tickVolume)) * 0.5;
     if (peak < 0.001) return NOOP_HOLD_TONE; // 靜音:不發聲
     const ctx = this.ctx;
-    const t = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(AudioPlayer.HOLD_TONE_FREQ, t);
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(peak, t + AudioPlayer.HOLD_TONE_FADE_SEC);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start(t);
+    const p = AudioPlayer.HOLD_TONE;
+    const t = ctx.currentTime + 0.005;
+    const a = p.attack / 1000;
+
+    const bus = ctx.createGain();
+    bus.gain.value = peak * 0.65;
+    bus.connect(ctx.destination);
+    const nodes: AudioNode[] = [bus];
+    const envGains: GainNode[] = [];
+    const oscillators: OscillatorNode[] = [];
+
+    const tone = (freq: number, level: number) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(Math.min(freq * Math.pow(2, p.sweep / 12), ctx.sampleRate * 0.45), t);
+      o.frequency.exponentialRampToValueAtTime(Math.min(freq, ctx.sampleRate * 0.45), t + 0.035);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(level, t + a); // 起音後維持在 level,按住期間持續播放、不自行衰減
+      o.connect(g).connect(bus);
+      o.start(t);
+      nodes.push(o, g);
+      envGains.push(g);
+      oscillators.push(o);
+    };
+    tone(p.frequency, 0.65); // 基音
+    tone(p.frequency * p.ratio, p.brightness * 0.36); // 第二諧波音
+    tone(p.frequency * 4.07, p.shimmer * 0.18); // 高頻閃爍泛音
+
+    if (p.click > 0) {
+      // 起音瞬間疊加的高通白噪音「喀」聲,衰減曲線直接烤進 buffer 樣本裡,只響一次。
+      const sampleCount = Math.ceil(((ctx.sampleRate * p.clickDecay) / 1000) * 7);
+      const noiseBuf = ctx.createBuffer(1, sampleCount, ctx.sampleRate);
+      const data = noiseBuf.getChannelData(0);
+      let seed = 123456;
+      const tau = (ctx.sampleRate * p.clickDecay) / 1000;
+      for (let i = 0; i < sampleCount; i++) {
+        seed = (Math.imul(seed, 1664525) + 1013904223) | 0;
+        data[i] = (seed / 2147483648) * Math.exp(-i / tau);
+      }
+      const source = ctx.createBufferSource();
+      const filter = ctx.createBiquadFilter();
+      const clickGain = ctx.createGain();
+      source.buffer = noiseBuf;
+      filter.type = 'highpass';
+      filter.frequency.value = 2800;
+      clickGain.gain.value = p.click * 0.35;
+      source.connect(filter).connect(clickGain).connect(bus);
+      source.start(t);
+      source.stop(t + p.clickDecay / 1000 + 0.01); // 不循環播放的話會自然結束,顯式停止只是求明確、跟其餘一次性音源一致
+      nodes.push(source, filter, clickGain);
+    }
+
     let stopped = false;
     return {
       stop: () => {
         if (stopped) return; // 保證 stop() 呼叫兩次以上安全
         stopped = true;
         const now = ctx.currentTime;
-        gain.gain.cancelScheduledValues(now);
-        gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), now); // 從當下音量接續淡出,避免跳變喀聲
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + AudioPlayer.HOLD_TONE_FADE_SEC);
-        osc.stop(now + AudioPlayer.HOLD_TONE_FADE_SEC + 0.01);
+        const release = p.decay / 1000; // decay 在持續音設計下改當釋音時間用
+        for (const g of envGains) {
+          g.gain.cancelScheduledValues(now);
+          g.gain.setValueAtTime(g.gain.value, now); // 從當下音量接續淡出,避免跳變喀聲
+          g.gain.linearRampToValueAtTime(0, now + release);
+        }
+        const stopAt = now + release + 0.02;
+        let cleaned = false;
+        const cleanup = () => {
+          if (cleaned) return; // 三顆都排程在同一個 stopAt,ended 派發順序不保證,故用旗標只清一次
+          cleaned = true;
+          for (const node of nodes) node.disconnect();
+        };
+        for (const o of oscillators) {
+          o.stop(stopAt);
+          o.onended = cleanup;
+        }
       },
     };
   }
